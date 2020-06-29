@@ -118,6 +118,8 @@ std::pair<size_t, ulint> recv_backup_heap_used();
 extern std::list<std::pair<space_id_t, lsn_t>> index_load_list;
 /** the last redo log flush len as seen by MEB */
 extern volatile lsn_t backup_redo_log_flushed_lsn;
+/** the start checkpoint lsn */
+extern volatile lsn_t backup_redo_log_checkpoint_lsn;
 /** true when the redo log is being backed up */
 extern bool recv_is_making_a_backup;
 

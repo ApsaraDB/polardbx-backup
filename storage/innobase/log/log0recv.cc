@@ -107,6 +107,7 @@ otherwise.  Note that this is false while a background thread is
 rolling back incomplete transactions. */
 volatile bool recv_recovery_on;
 volatile lsn_t backup_redo_log_flushed_lsn;
+volatile lsn_t backup_redo_log_checkpoint_lsn;
 #ifdef XTRABACKUP
 /* List of tablespaces that should be copied fully. Even if page tracking is
 active, the tablespaces in this list will be fully copied to backup directory.
@@ -1831,11 +1832,19 @@ static byte *recv_parse_or_apply_log_rec_body(
       If PXB gets the last_redo_flush_lsn and that is less than the
       lsn of the current record PXB fails the backup process.
       Error out in case of online backup and emit a warning in case
-      of offline backup and continue. */
+      of offline backup and continue.
+
+      3. Bug#PXB-2205, if lock-ddl not set, xtrabackup prepare may
+      crash or remove ibd file directly when apply replace ddl. Rds xtrabackup
+      use backup_redo_log_checkpoint_lsn to fail backup for this condition. */
       if (!recv_recovery_on) {
-        if (redo_catchup_completed) {
-          if (backup_redo_log_flushed_lsn < recv_sys->recovered_lsn) {
-            xb::info() << "Last flushed lsn: " << backup_redo_log_flushed_lsn
+        if (true) {
+          if ((backup_redo_log_flushed_lsn < recv_sys->recovered_lsn) ||
+              (!opt_lock_ddl &&
+               backup_redo_log_checkpoint_lsn < recv_sys->recovered_lsn)) {
+            ib::info() << "Start checkpoint lsn: "
+                       << backup_redo_log_checkpoint_lsn
+                       << " last flushed lsn: " << backup_redo_log_flushed_lsn
                        << " load_index lsn " << recv_sys->recovered_lsn;
 
             if (backup_redo_log_flushed_lsn == 0) {
@@ -1879,6 +1888,8 @@ static byte *recv_parse_or_apply_log_rec_body(
             full_scan_tables.insert(space_id);
           }
         }
+        /** else the index is flushed to disk before
+        backup started hence no error */
       }
 #endif /* XTRABACKUP */
       if (end_ptr < ptr + 8) {

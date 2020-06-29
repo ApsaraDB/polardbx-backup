@@ -111,6 +111,7 @@ bool Redo_Log_Reader::find_start_checkpoint_lsn() {
   /* update the headers to store the current checkpoint LSN */
   update_log_temp_checkpoint(log_hdr_buf, checkpoint_lsn_start);
 
+  backup_redo_log_checkpoint_lsn = checkpoint_lsn_start;
   return (true);
 }
 
