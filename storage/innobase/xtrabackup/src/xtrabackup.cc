@@ -1059,7 +1059,7 @@ struct my_option xb_client_options[] = {
      "Issue LOCK TABLES/LOCK INSTANCE FOR BACKUP if it is "
      "supported by server at the beginning of the backup to block all DDL "
      "operations.",
-     (uchar *)&opt_lock_ddl, (uchar *)&opt_lock_ddl, 0, GET_BOOL, NO_ARG, 1, 0,
+     (uchar *)&opt_lock_ddl, (uchar *)&opt_lock_ddl, 0, GET_BOOL, NO_ARG, 0, 0,
      0, 0, 0, 0},
 
     {"lock-ddl-timeout", OPT_LOCK_DDL_TIMEOUT,
