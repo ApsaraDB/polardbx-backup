@@ -741,9 +741,15 @@ dberr_t Datafile::validate_first_page(space_id_t space_id, lsn_t *flush_lsn,
 
   if (fil_space_read_name_and_filepath(m_space_id, &prev_name,
                                        &prev_filepath)) {
-    if (0 == strcmp(m_filepath, prev_filepath) ||
+    char *path_trimmed;
+    /* Replace the prefix '././' with './' */
+    if (strncmp(m_filepath, "././", 4) == 0)
+      path_trimmed = m_filepath + 2;
+    else
+      path_trimmed = m_filepath;
+    if (0 == strcmp(path_trimmed, prev_filepath) ||
         (Fil_path::is_lizard_tablespace_name(prev_filepath) &&
-         Fil_path(prev_filepath).is_same_as(m_filepath))) {
+         Fil_path(prev_filepath).is_same_as(path_trimmed))) {
       ut::free(prev_name);
       ut::free(prev_filepath);
       return (DB_SUCCESS);
