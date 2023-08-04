@@ -12151,6 +12151,9 @@ ER_RECYCLE_BIN
 ER_OUTLINE
   eng "Statement outline : %s"
 
+ER_IB_MSG_DDL_FAIL_NO_BUILDER
+  eng "DDL Failed as Builder is already freed"
+
 ################################################################################
 # Error numbers 50000 to 51999 are reserved. Please do not use them for
 # other error messages.
