@@ -34,6 +34,7 @@ extern lsn_t xtrabackup_start_checkpoint;
 extern bool use_dumped_tablespace_keys;
 extern unsigned long xb_backup_version;
 extern bool xb_generated_redo;
+extern bool rds_disable_estimate_memory;
 
 extern std::vector<ulint> invalid_encrypted_tablespace_ids;
 

@@ -500,6 +500,9 @@ char *opt_rocksdb_wal_dir = nullptr;
 int opt_rocksdb_checkpoint_max_age = 0;
 int opt_rocksdb_checkpoint_max_count = 0;
 
+/** Disable estimate memory when backup. */
+bool rds_disable_estimate_memory = true;
+
 /** Possible values for system variable "innodb_checksum_algorithm". */
 extern const char *innodb_checksum_algorithm_names[];
 
@@ -778,6 +781,7 @@ enum options_xtrabackup {
   OPT_XTRA_CHECK_PRIVILEGES,
   OPT_XTRA_READ_BUFFER_SIZE,
   OPT_SKIP_FLUSH_BINARY_LOGS,
+  OPT_RDS_DISABLE_ESTIMATE_MEMORY
 };
 
 struct my_option xb_client_options[] = {
@@ -1624,6 +1628,11 @@ Disable with --skip-innodb-checksums.",
     {"rocksdb_wal_dir", OPT_ROCKSDB_WAL_DIR, "RocksDB WAL directory",
      &opt_rocksdb_wal_dir, &opt_rocksdb_wal_dir, 0, GET_STR_ALLOC, REQUIRED_ARG,
      0, 0, 0, 0, 0, 0},
+
+    {"rds-disable-estimate-memory", OPT_RDS_DISABLE_ESTIMATE_MEMORY,
+     "Disable estimate memory when backup",
+     &rds_disable_estimate_memory, &rds_disable_estimate_memory,
+     0, GET_BOOL, NO_ARG, true, 0, 0, 0, 0, 0},
 
     {"register_redo_log_consumer", OPT_REGISTER_REDO_LOG_CONSUMER,
      "Register a redo log consumer in the start of the backup. If this option "
@@ -2882,6 +2891,11 @@ Print backup meta info to a specified buffer. */
 static void xtrabackup_print_metadata(char *buf, size_t buf_len) {
   /* Use UINT64PF instead of LSN_PF here, as we have to maintain the file
   format. */
+
+  /** If rds_disable_estimate_memory is set (default true), the estimated values
+  should be 0. */
+  ut_ad(!rds_disable_estimate_memory || (redo_memory == 0 && redo_frames == 0));
+
   snprintf(buf, buf_len,
            "backup_type = %s\n"
            "from_lsn = " LSN_PF

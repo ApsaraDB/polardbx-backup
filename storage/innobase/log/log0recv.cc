@@ -2778,6 +2778,10 @@ static void recv_calculate_hash_heap(mlog_id_t type, space_id_t space_id,
                                      byte *rec_end, lsn_t start_lsn) {
   if (!recv_recovery_on && xtrabackup_start_checkpoint > start_lsn) return;
 
+  /** These following operations may slow down redo copy. If the redo write of
+  instance is heavy, the backup may fail with "redo log has wrapped around". */
+  if (rds_disable_estimate_memory) return;
+
   ut_ad(type != MLOG_FILE_DELETE);
   ut_ad(type != MLOG_FILE_CREATE);
   ut_ad(type != MLOG_FILE_RENAME);
