@@ -177,7 +177,7 @@ void package_context_init() {
 
   /* dbms_admin.show_native_procedure() */
   register_package<Proc, im::Show_native_procedure_proc>(im::ADMIN_PROC_SCHEMA);
-  
+
   /* dbms_outln.add_optimizer_outline(...) */
   register_package<Proc, Outline_optimizer_proc_add>(OUTLINE_PROC_SCHEMA);
   /* dbms_outln.add_index_outline(...) */
