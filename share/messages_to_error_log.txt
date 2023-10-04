@@ -12152,7 +12152,7 @@ ER_OUTLINE
   eng "Statement outline : %s"
 
 ER_IB_MSG_DDL_FAIL_NO_BUILDER
-  eng "DDL Failed as Builder is already freed"
+  eng "DDL failed as Builder is already freed. Builder: state=%u, error_state=%u. Index: id=%zu, name='%s', space_id=%u, page=%u. Table: old_name='%s', new_name='%s'."
 
 ################################################################################
 # Error numbers 50000 to 51999 are reserved. Please do not use them for
