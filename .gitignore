@@ -282,3 +282,6 @@ extra/libkmip/kmippp/kmippp.cmake
 extra/libkmip/libkmip/src/kmip.cmake
 
 man/man1/
+mysql-test/run_query.log
+mysql-test/run_query.error
+mysql-test/var*
