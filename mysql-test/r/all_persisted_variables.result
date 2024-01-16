@@ -42,6 +42,7 @@ include/assert.inc [Expect 500+ variables in the table. Due to open Bugs, we are
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 include/assert.inc [Expect 492 persisted variables in the table.]
 =======
 <<<<<<< HEAD
@@ -57,6 +58,9 @@ include/assert.inc [Expect 494 persisted variables in the table.]
 =======
 include/assert.inc [Expect 496 persisted variables in the table.]
 >>>>>>> 6de5f3dd2edf... [Feature] Writting Gcn_log_event before Gtid_log_event
+=======
+include/assert.inc [Expect 608 persisted variables in the table.]
+>>>>>>> e6c94a79b94 ([feature] txn retention)
 
 ************************************************************
 * 3. Restart server, it must preserve the persisted variable
@@ -64,6 +68,7 @@ include/assert.inc [Expect 496 persisted variables in the table.]
 ************************************************************
 # restart
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 include/assert.inc [Expect 492 persisted variables in persisted_variables table.]
@@ -91,6 +96,11 @@ include/assert.inc [Expect 496 persisted variables in persisted_variables table.
 include/assert.inc [Expect 496 persisted variables shown as PERSISTED in variables_info table.]
 include/assert.inc [Expect 496 persisted variables with matching peristed and global values.]
 >>>>>>> 6de5f3dd2edf... [Feature] Writting Gcn_log_event before Gtid_log_event
+=======
+include/assert.inc [Expect 608 persisted variables in persisted_variables table.]
+include/assert.inc [Expect 608 persisted variables shown as PERSISTED in variables_info table.]
+include/assert.inc [Expect 608 persisted variables with matching peristed and global values.]
+>>>>>>> e6c94a79b94 ([feature] txn retention)
 
 ************************************************************
 * 4. Test RESET PERSIST IF EXISTS. Verify persisted variable
