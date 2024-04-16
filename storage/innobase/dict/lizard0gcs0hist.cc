@@ -250,23 +250,59 @@ static commit_snap_t make_commit_snapshot() {
   Rolling forward the SCN every SRV_SCN_HISTORY_INTERVAL.
 */
 static dberr_t roll_forward_scn(commit_snap_t &snap) {
+  scn_transform_result_t result;
   pars_info_t *pinfo;
   dberr_t ret;
-  ulint keep;
+  ulint utc_to_keep;
   trx_t *trx;
 
-  keep = snap.utc_sec - (srv_scn_history_keep_days * 24 * 60 * 60);
+  utc_to_keep = snap.utc_sec - (srv_scn_history_keep_days * 24 * 60 * 60);
 
   trx = trx_allocate_for_background();
+
+  trx->isolation_level = TRX_ISO_READ_COMMITTED;
+
   if (srv_read_only_mode) {
     trx_start_internal_read_only(trx, UT_LOCATION_HERE);
   } else {
     trx_start_internal(trx, UT_LOCATION_HERE);
   }
 
+  /** Try to transform utc_to_keep to scn_to_keep. */
   pinfo = pars_info_create();
+  pars_info_add_ull_literal(pinfo, "utc_to_keep", utc_to_keep);
+  pars_info_bind_function(pinfo, "fetch_scn_history_step",
+                          srv_fetch_scn_history_step, &result);
 
-  pars_info_add_ull_literal(pinfo, "keep", keep);
+  result.err = que_eval_sql(pinfo,
+                            "PROCEDURE FETCH_SCN_HISTORY () IS\n"
+                            "DECLARE FUNCTION fetch_scn_history_step;\n"
+                            "DECLARE CURSOR scn_history_cur IS\n"
+                            "  SELECT\n"
+                            "  scn,\n"
+                            "  utc \n"
+                            "  FROM \"" SCN_HISTORY_TABLE_FULL_NAME
+                            "\"\n"
+                            "  WHERE\n"
+                            "  utc >= :utc_to_keep\n"
+                            "  ORDER BY utc ASC;\n"
+
+                            "BEGIN\n"
+
+                            "OPEN scn_history_cur;\n"
+                            "FETCH scn_history_cur INTO\n"
+                            "  fetch_scn_history_step();\n"
+                            "IF (SQL % NOTFOUND) THEN\n"
+                            "  CLOSE scn_history_cur;\n"
+                            "  RETURN;\n"
+                            "END IF;\n"
+                            "CLOSE scn_history_cur;\n"
+                            "END;\n",
+                            trx);
+
+  /** Roll forward scn. */
+  pinfo = pars_info_create();
+  pars_info_add_ull_literal(pinfo, "scn_to_keep", result.scn);
   pars_info_add_ull_literal(pinfo, "scn", snap.scn);
   pars_info_add_ull_literal(pinfo, "utc", snap.utc_sec);
   pars_info_add_str_literal(pinfo, "memo", "");
@@ -278,7 +314,7 @@ static dberr_t roll_forward_scn(commit_snap_t &snap) {
                      "DELETE FROM \"" SCN_HISTORY_TABLE_FULL_NAME
                      "\"\n"
                      "WHERE\n"
-                     "utc < :keep; \n"
+                     "scn < :scn_to_keep; \n"
 
                      "INSERT INTO \"" SCN_HISTORY_TABLE_FULL_NAME
                      "\"\n"
