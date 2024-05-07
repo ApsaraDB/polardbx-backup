@@ -65,6 +65,9 @@ static inline fil_addr_t trx_purge_get_log_from_hist(
 /** Initialize in-memory purge structures */
 void trx_purge_sys_mem_create();
 
+void trx_purge_sys_initialize(uint32_t n_purge_threads,
+                              lizard::purge_heap_t *purge_heap);
+
 /** Creates the global purge system control structure and inits the history
 mutex.
 @param[in]      n_purge_threads   number of purge threads
@@ -126,13 +129,13 @@ struct TxnUndoRsegsIterator;
 /** This is the purge pointer/iterator. We need both the undo no and the
 transaction no up to which purge has parsed and applied the records. */
 struct purge_iter_t {
-  purge_iter_t() : scn(), undo_no(), undo_rseg_space(SPACE_UNKNOWN) {
+  purge_iter_t() : ommt(), undo_no(), undo_rseg_space(SPACE_UNKNOWN) {
     // Do nothing
   }
 
   /** Purge has advanced past all transactions whose SCN number is less or equal
    * than this */
-  scn_t scn;
+  commit_order_t ommt;
 
   /** Purge has advanced past all records whose undo number
   is less than this. */
@@ -1137,13 +1140,10 @@ struct trx_purge_t {
   Only the purge sys coordinator thread and recover thread can modify it. */
   std::atomic<scn_t> purged_scn;
 
-  utc_t top_undo_us;
-
   /** Similar with purged_scn */
-  Purged_gcn purged_gcn;
+  lizard::Purged_gcn purged_gcn;
 
-  /** Blocked reason of purge sys */
-  lizard::Purge_blocked_stat blocked_stat;
+  void push_purged(const commit_order_t &ommt);
 };
 
 #include "trx0purge.ic"

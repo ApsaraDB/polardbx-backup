@@ -757,6 +757,7 @@ static void trx_resurrect_table_ids(trx_t *trx, const trx_undo_ptr_t *undo_ptr,
   mtr_t mtr;
   page_t *undo_page;
   trx_undo_rec_t *undo_rec;
+  bool is_2pc_purge = false;
 
   ut_ad(undo == undo_ptr->insert_undo || undo == undo_ptr->update_undo);
 
@@ -794,7 +795,7 @@ static void trx_resurrect_table_ids(trx_t *trx, const trx_undo_ptr_t *undo_ptr,
     }
 
     trx_undo_rec_get_pars(undo_rec, &type, &cmpl_info, &updated_extern,
-                          &undo_no, &table_id, type_cmpl);
+                          &undo_no, &table_id, &is_2pc_purge, type_cmpl);
     tables.insert(table_id);
 
     undo_rec = trx_undo_get_prev_rec(undo_rec, undo->hdr_page_no,
@@ -1629,7 +1630,7 @@ static bool trx_write_serialisation_history(
                                                    : nullptr;
 
     /** Lizard: txn undo header */
-    commit_mark_t cmmt = COMMIT_MARK_NULL;
+    commit_mark_t cmmt;
     lizard::TxnUndoRsegs elem;
     bool has_collected = lizard::trx_collect_rsegs_for_purge(
         &elem, redo_rseg_undo_ptr, temp_rseg_undo_ptr, txn_rseg_undo_ptr);

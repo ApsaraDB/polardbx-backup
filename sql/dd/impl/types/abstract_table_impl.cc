@@ -90,7 +90,8 @@ static const std::set<String_type> default_valid_option_keys = {
     "view_valid",
     "gipk",
     "__origin_schema__",
-    "__origin_table__"};
+    "__origin_table__",
+    "flashback_area"};
 
 ///////////////////////////////////////////////////////////////////////////
 // Abstract_table_impl implementation.

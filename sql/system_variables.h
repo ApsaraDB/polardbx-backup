@@ -400,6 +400,10 @@ struct System_variables {
 
   bool sql_require_primary_key;
 
+  bool opt_query_via_flashback_area;
+
+  bool opt_flashback_area;
+
   /**
     @sa Sys_sql_generate_invisible_primary_key
   */
@@ -604,6 +608,9 @@ struct System_status_var {
   */
   double last_query_cost;
   ulonglong last_query_partial_plans;
+
+  /** Number of queries via flashback area in the session. */
+  ulonglong flashback_area_query_cnt;
 };
 
 /*

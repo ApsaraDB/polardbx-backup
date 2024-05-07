@@ -45,6 +45,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0dbg.h"
 
 #include "sql/binlog/binlog_xa_specification.h"
+#include "sql/lizard/lizard_rpl_gcn.h"
 
 #include <atomic>
 #include <queue>
@@ -129,6 +130,9 @@ static_assert(TXN_UNDO_LOG_EXT_HDR_SIZE == 275,
 #define TXN_UNDO_LOG_ACTIVE   1
 #define TXN_UNDO_LOG_COMMITED 2
 #define TXN_UNDO_LOG_PURGED   3
+
+/* 2PC Purge done state */
+#define TXN_UNDO_LOG_ERASED 4
 
 /*****************************************
  *        TXN_UNDO_LOG_EXT_STORAGE           *
@@ -749,9 +753,8 @@ inline void txn_lookup_t_set(txn_lookup_t *txn_lookup,
   txn_lookup->real_image = real_image;
   txn_lookup->real_state = real_state;
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
-  if (real_state == TXN_STATE_ACTIVE ||
-      real_state == TXN_STATE_COMMITTED ||
-      real_state == TXN_STATE_PURGED) {
+  if (real_state == TXN_STATE_ACTIVE || real_state == TXN_STATE_COMMITTED ||
+      real_state == TXN_STATE_PURGED || real_state == TXN_STATE_ERASED) {
     if (real_state != TXN_STATE_ACTIVE) {
       /** TXN reuse, current scn should be larger than prev scn */
       ut_a(txn_undo_hdr.image.scn > txn_undo_hdr.prev_image.scn);
@@ -836,8 +839,13 @@ extern bool txn_rec_cleanout_state_by_misc(txn_rec_t *txn_rec, btr_pcur_t *pcur,
                                            const dict_index_t *index,
                                            const ulint *offsets);
 
-inline bool txn_lookup_rollptr_is_valid(const txn_lookup_t *txn_lookup) {
-  return (txn_lookup->real_state < txn_state_t::TXN_STATE_PURGED);
+inline bool txn_lookup_rollptr_is_valid(const txn_lookup_t *txn_lookup,
+                                        bool flashback_area) {
+  if (flashback_area && txn_lookup->txn_undo_hdr.is_2pc_purge) {
+    return (txn_lookup->real_state < txn_state_t::TXN_STATE_ERASED);
+  } else {
+    return (txn_lookup->real_state < txn_state_t::TXN_STATE_PURGED);
+  }
 }
 
 /** Collect rsegs into the purge heap for the first time */
@@ -874,6 +882,8 @@ inline void txn_undo_set_state(trx_ulogf_t *log_hdr, ulint state, mtr_t *mtr) {
   else if (state == TXN_UNDO_LOG_PURGED)
     ut_a(old_state == TXN_UNDO_LOG_COMMITED || /* Normal case */
          old_state == TXN_UNDO_LOG_PURGED);    /* Crash recovery */
+  else if (state == TXN_UNDO_LOG_ERASED)
+    ut_a(old_state == TXN_UNDO_LOG_PURGED);
   else
     ut_a(state == TXN_UNDO_LOG_ACTIVE);
 #endif
@@ -888,7 +898,7 @@ inline void txn_undo_set_state(trx_ulogf_t *log_hdr, ulint state, mtr_t *mtr) {
             or err if it's not TXN undo */
 inline std::pair<commit_mark_t, bool> txn_undo_set_state_at_purge(
     const trx_rseg_t *rseg, const page_size_t &page_size) {
-  commit_mark_t cmmt = COMMIT_MARK_NULL;
+  commit_mark_t cmmt;
 
   if (fsp_is_txn_tablespace_by_id(rseg->space_id)) {
     mtr_t mtr;
@@ -922,6 +932,21 @@ inline void txn_undo_set_state_at_init(trx_ulogf_t *log_hdr, mtr_t *mtr) {
   txn_undo_set_state(log_hdr, TXN_UNDO_LOG_ACTIVE, mtr);
 }
 
+/**
+  Set TXN_UNDO_LOG_STATE as TXN_UNDO_LOG_ERASED when erase. NOTES:
+  1. Can not hold any other undo page latch because no rsegs mutex is held.
+  2. Did not hold rseg mutext because only a TXN undo page is modified.
+
+  @params[in]   txn_addr          TXN address
+  @params[in]   modifier_trx_id   Expect modifier trx id to check if the TXN
+                                  has been reused.
+  @params[in]   scn               the corresponding scn
+  @params[in]   page_size         TXN undo page size.
+*/
+extern void txn_undo_set_state_at_erase(const slot_addr_t &txn_addr,
+                                        trx_id_t modifier_trx_id, scn_t scn,
+                                        const page_size_t &page_size);
+
 /*
   Undo retention controller.
 */
@@ -948,16 +973,11 @@ class Undo_retention {
  protected:
   volatile bool m_stat_done;
 
-  volatile ulint m_last_top_utc; // to output status
-
   std::atomic<ulint> m_total_used_size;
   std::atomic<ulint> m_total_file_size;
 
-  Undo_retention () :
-      m_stat_done(false),
-      m_last_top_utc(0),
-      m_total_used_size(0),
-      m_total_file_size(0) {}
+  Undo_retention()
+      : m_stat_done(false), m_total_used_size(0), m_total_file_size(0) {}
 
   Undo_retention &operator=(const Undo_retention&) = delete;
   Undo_retention(const Undo_retention&) = delete;
@@ -984,7 +1004,7 @@ class Undo_retention {
   undo tablespace size and retention configuration.
 
   @return     true     if blocking purge */
-  bool purge_advise();
+  bool purge_advise(ulint us);
 
   /* Create the lizard undo retention mutex. */
   inline void init_mutex() {
@@ -993,8 +1013,6 @@ class Undo_retention {
 
   /* Free the lizard undo retention mutex. */
   static inline void destroy() { mutex_free(&(instance()->m_mutex)); }
-
-  void get_stat_data(ulint *used_size, ulint *file_size, ulint *retained_time);
 };
 
 /* Init undo_retention */
@@ -1103,6 +1121,93 @@ void trx_undo_mem_init_for_txn(trx_rseg_t *rseg, trx_undo_t *undo,
                                const trx_ulogf_t *undo_header, ulint type,
                                uint32_t flag, ulint state, mtr_t *mtr);
 
+/** When report update undo, set 2pc flag if need.
+ *
+ * @param[in]		index	clust index
+ * @param[in]		trx	transaction context
+ * @param[in/out]	undo	update undo
+ * @param[in/out]	mtr
+ * @param[in/out]	is_2pc_purge */
+void trx_undo_set_2pc_purge_at_report(const dict_index_t *index, trx_t *trx,
+                                      trx_undo_t *update_undo,
+                                      bool is_2pc_purge);
+
+/**
+  Reads the two-phase commit purge flag in the transaction undo log header
+  @param[in]  undo_header     Pointer to the undo log header
+  @param[in]  mtr             Mini-transaction
+  @return     True if the 2PC Purge flag is set, false otherwise
+*/
+bool trx_undo_log_is_2pc_purge(const trx_ulogf_t *log_hdr, mtr_t *mtr);
+
+/**
+  Check if is two-phase purge flag in the undo log segment tailer.
+  @param[in]    undo log header page.
+  @param[in]    page size
+  @param[in]    mini transaction
+*/
+bool trx_useg_is_2pc_purge(const page_t *undo_page,
+                           const page_size_t &page_size, mtr_t *mtr);
+
+/**
+ * Allocate semi-page list when allocate new txn/update undo log segemnt.
+ *
+ * @param[in/out]	txn undo page
+ * @param[in]		page size
+ * @param[in/out]	mtr */
+void trx_useg_allocate(page_t *undo_page, const page_size_t &page_size,
+                       mtr_t *mtr);
+
+/** Verify the trx useg. */
+bool trx_useg_verify(page_t *undo_page, const page_size_t &page_size,
+                     mtr_t *mtr);
+
+/**
+  Get newest log header in last (oldest) log segment from free list .
+  @params[in]   rseg            update undo rollback segment
+  @params[out]  log header address of last log
+
+  @retval	commit mark of last log header
+*/
+extern commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
+                                           mtr_t *mtr, rseg_stat_t *stat);
+
+/**
+  Check if the TXN is purged or erased. The latch of the TXN page will be held
+  if precheck failed.
+  @param[in]      roll_ptr        roll pointer to record
+  @param[in/out]  txn_rec         txn_info of record
+  @param[in]      flashback_area  true if it's a flashback area query
+  @param[in]      txn_mtr         txn mtr
+
+  @retval         true if txn has been purged (non flashback area) or
+                  erased (flashback area)
+*/
+extern bool txn_undo_is_missing_history(roll_ptr_t roll_ptr, txn_rec_t *txn_rec,
+                                        bool flashback_area, mtr_t *txn_mtr);
+
+/** Calculate rsegment status of undo tablespace.
+ *
+ * @param[in/out]	status array.
+ * */
+void trx_trunc_status(std::vector<trunc_status_t> &array);
+
+void trx_purge_status(purge_status_t &status);
+
+/**
+  Check if the txn retention time has been satisfied.
+  If the retention time has been satisfied, the txn undo has been retained for
+  the required period as defined by txn_retention_time.
+
+  @param[in]  utc        utc on txn to be checked
+
+  @retval     true if the txn retention satisfied
+*/
+extern bool txn_retention_satisfied(utc_t utc);
+
+/**********************************************************************************/
+//	Purge/Erase Status
+/**********************************************************************************/
 }  // namespace lizard
 
 /** Delcare the functions which were defined in other cc files.*/

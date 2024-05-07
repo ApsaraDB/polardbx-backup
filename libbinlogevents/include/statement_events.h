@@ -528,7 +528,12 @@ class Query_event : public Binary_log_event {
     /*
       Replicate default_table_encryption.
     */
-    Q_DEFAULT_TABLE_ENCRYPTION
+    Q_DEFAULT_TABLE_ENCRYPTION,
+
+    /*
+       Replicate opt_flashback_area.
+    */
+    Q_OPT_FLASHBACK_AREA,
   };
   const char *query;
   const char *db;
@@ -645,6 +650,8 @@ class Query_event : public Binary_log_event {
   uint8_t sql_require_primary_key;
 
   uint8_t default_table_encryption;
+
+  uint8_t opt_flashback_area;
 
   /**
     The constructor will be used while creating a Query_event, to be

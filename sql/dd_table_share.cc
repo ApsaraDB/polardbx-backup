@@ -738,6 +738,10 @@ static bool fill_share_from_dd(THD *thd, TABLE_SHARE *share,
   if (table_options.exists("encrypt_type"))
     table_options.get("encrypt_type", &share->encrypt_type, &share->mem_root);
 
+  // Read Flashback Area
+  if (table_options.exists("flashback_area"))
+    table_options.get("flashback_area", &share->flashback_area);
+
   return false;
 }
 

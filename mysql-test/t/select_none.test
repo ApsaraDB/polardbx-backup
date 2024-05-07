@@ -1,5 +1,6 @@
 #Want to skip this test from daily Valgrind execution
 --source include/no_valgrind_without_big.inc
+--source include/skip_flashback_area.inc
 # 
 # Run select.inc without any of the socalled 6.0 features.
 #

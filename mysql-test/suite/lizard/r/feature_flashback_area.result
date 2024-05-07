@@ -1,0 +1,28 @@
+send PolarXRPC.Session.NewSession {
+}
+
+RUN recvok
+send PolarXRPC.Sql.StmtExecute {
+  stmt: "show variables like \'query_via_flashback_area\'"
+  schema_name: "test"
+  query_via_flashback_area: false
+}
+
+Variable_name	Value
+query_via_flashback_area	OFF
+0 rows affected
+send PolarXRPC.Sql.StmtExecute {
+  stmt: "show variables like \'query_via_flashback_area\'"
+  schema_name: "test"
+  query_via_flashback_area: true
+}
+
+Variable_name	Value
+query_via_flashback_area	ON
+0 rows affected
+send PolarXRPC.Session.Close {
+}
+
+RUN recvok
+ok
+##############

@@ -34,7 +34,7 @@
 
 #include <sql_class.h>
 #include "sql/xa/lizard_xa_trx.h"
-#include "sql/package/proc_undo_purge.h"
+#include "lizard0erase.h"
 
 /**
   Compare whether the xid in thd is the same as the xid in trx (and aslo in
@@ -148,16 +148,29 @@ uint64 innobase_load_gcn() { return lizard::gcs_load_gcn(); }
 
 uint64 innobase_load_scn() { return lizard::gcs_load_scn(); }
 
-bool innobase_snapshot_scn_too_old(my_scn_t scn) {
-  return scn < purge_sys->purged_scn.load();
+bool innobase_snapshot_scn_too_old(my_scn_t scn, bool flashback_area) {
+  if (flashback_area) {
+    return scn < lizard::erase_sys->erased_scn.load();
+  } else {
+    return scn < purge_sys->purged_scn.load();
+  }
 }
 
-bool innobase_snapshot_automatic_gcn_too_old(my_gcn_t gcn) {
-  return gcn < purge_sys->purged_gcn.get();
+bool innobase_snapshot_automatic_gcn_too_old(my_gcn_t gcn,
+                                             bool flashback_area) {
+  if (flashback_area) {
+    return gcn < lizard::erase_sys->erased_gcn.get();
+  } else {
+    return gcn < purge_sys->purged_gcn.get();
+  }
 }
 
-bool innobase_snapshot_assigned_gcn_too_old(my_gcn_t gcn) {
-  return gcn <= purge_sys->purged_gcn.get();
+bool innobase_snapshot_assigned_gcn_too_old(my_gcn_t gcn, bool flashback_area) {
+  if (flashback_area) {
+    return gcn <= lizard::erase_sys->erased_gcn.get();
+  } else {
+    return gcn <= purge_sys->purged_gcn.get();
+  }
 }
 
 void innobase_set_gcn_if_bigger(my_gcn_t gcn_arg) {
@@ -172,13 +185,12 @@ int innobase_conver_timestamp_to_scn(THD *thd, my_utc_t utc_arg,
   return lizard::convert_timestamp_to_scn(thd, utc, scn);
 }
 
-void innobase_get_undo_purge_status(im::Undo_purge_show_result *result) {
-  lizard::Undo_retention::instance()->get_stat_data(
-      &result->used_size, &result->file_size, &result->retained_time);
-  purge_sys->blocked_stat.get(&result->blocked_cause, &result->blocked_utc);
-  result->retention_time = lizard::Undo_retention::retention_time;
-  result->reserved_size = lizard::Undo_retention::space_reserve;
-  result->retention_size_limit = lizard::Undo_retention::space_limit;
+void innobase_trunc_status(std::vector<lizard::trunc_status_t> &array) {
+  lizard::trx_trunc_status(array);
+}
+
+void innobase_purge_status(lizard::purge_status_t &status) {
+  lizard::trx_purge_status(status);
 }
 
 /**
@@ -205,5 +217,6 @@ void innobase_init_ext(handlerton *hton) {
       innobase_search_up_limit_tid<lizard::Snapshot_scn_vision>;
   hton->ext.search_up_limit_tid_for_gcn =
       innobase_search_up_limit_tid<lizard::Snapshot_gcn_vision>;
-  hton->ext.get_undo_purge_status = innobase_get_undo_purge_status;
+  hton->ext.trunc_status = innobase_trunc_status;
+  hton->ext.purge_status = innobase_purge_status;
 }

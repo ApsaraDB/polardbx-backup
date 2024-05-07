@@ -34,15 +34,23 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0scn.h"
 #include "lizard0gcs.h"
 #include "lizard0dbg.h"
+#include "lizard0undo.h"
 
 #include "mtr0log.h"
 #include "trx0purge.h"
 #include "trx0rseg.h"
+#include "que0que.h"
+#include "row0purge.h"
+#include "fut0lst.h"
+#include "trx0rec.h"
+#include "row0upd.h"
 
-#ifdef UNIV_PFS_MUTEX
-/* lizard purge blocked stat mutex PFS key */
-mysql_pfs_key_t purge_blocked_stat_mutex_key;
-#endif
+/** A sentinel undo record used as a return value when we have a whole
+undo log which can be skipped by purge */
+extern trx_undo_rec_t trx_purge_ignore_rec;
+
+/** lizard: a sentinel undo record to identify the BLOCKED record */
+extern trx_undo_rec_t trx_purge_blocked_rec;
 
 namespace lizard {
 
@@ -63,7 +71,7 @@ const page_size_t TxnUndoRsegsIterator::set_next(bool *keep_top) {
   lizard_purged_scn_validation();
 
   if (m_iter != m_txn_undo_rsegs.end()) {
-    m_purge_sys->iter.scn = (*m_iter)->last_scn;
+    m_purge_sys->iter.ommt = (*m_iter)->last_ommt;
   } else if (!m_purge_sys->purge_heap->empty()) {
     /** We can't just pop the top element of the heap. In the past,
     It must be the smallest trx_no in the top of the heap, so we just
@@ -126,7 +134,7 @@ const page_size_t TxnUndoRsegsIterator::set_next(bool *keep_top) {
   m_purge_sys->rseg->latch();
 
   ut_a(m_purge_sys->rseg->last_page_no != FIL_NULL);
-  ut_ad(m_purge_sys->rseg->last_scn == m_txn_undo_rsegs.get_scn());
+  ut_ad(m_purge_sys->rseg->last_ommt.scn == m_txn_undo_rsegs.get_scn());
 
   /* The space_id must be a tablespace that contains rollback segments.
   That includes the system, temporary and all undo tablespaces. */
@@ -147,7 +155,7 @@ const page_size_t TxnUndoRsegsIterator::set_next(bool *keep_top) {
   hazard, so we comment the assertion out */
   /* ut_a(purge_sys->iter.scn <= purge_sys->rseg->last_scn); */
 
-  m_purge_sys->iter.scn = m_purge_sys->rseg->last_scn;
+  m_purge_sys->iter.ommt = m_purge_sys->rseg->last_ommt;
   m_purge_sys->hdr_offset = m_purge_sys->rseg->last_offset;
   m_purge_sys->hdr_page_no = m_purge_sys->rseg->last_page_no;
 
@@ -155,74 +163,6 @@ const page_size_t TxnUndoRsegsIterator::set_next(bool *keep_top) {
 
   return (page_size);
 }
-
-template <typename XCN, unsigned long long POS>
-XCN Purged_cnum<XCN, POS>::read() {
-  XCN num;
-  ut_ad(sizeof(XCN) == 8);
-  gcs_sysf_t *hdr;
-  mtr_t mtr;
-
-  mtr_start(&mtr);
-  hdr = gcs_sysf_get(&mtr);
-
-  num = mach_read_from_8(hdr + POS);
-
-  /** If lizard version is low, purge_gcn has not been saved. */
-  if (num == 0 && POS == GCS_DATA_PURGE_GCN) {
-    num = GCN_INITIAL;
-  } else {
-    ut_a(num >= GCN_INITIAL);
-  }
-
-  mtr_commit(&mtr);
-
-  return num;
-}
-
-template <typename XCN, unsigned long long POS>
-void Purged_cnum<XCN, POS>::write(XCN num) {
-  ut_ad(m_inited == true);
-  gcs_sysf_t *hdr;
-  mtr_t mtr;
-
-  mtr_start(&mtr);
-  hdr = gcs_sysf_get(&mtr);
-  mlog_write_ull(hdr + POS, num, &mtr);
-  mtr_commit(&mtr);
-}
-
-template <typename XCN, unsigned long long POS>
-void Purged_cnum<XCN, POS>::init() {
-  ut_ad(m_inited == false);
-
-  m_purged_xcn = read();
-  m_inited = true;
-}
-
-template <typename XCN, unsigned long long POS>
-XCN Purged_cnum<XCN, POS>::get() {
-  ut_ad(m_inited == true);
-  return m_purged_xcn.load();
-}
-
-/**
-  Flush the bigger commit number to lizard tbs,
-  Only one single thread to persist.
-*/
-template <typename XCN, unsigned long long POS>
-void Purged_cnum<XCN, POS>::flush(XCN num) {
-  ut_ad(m_inited == true);
-  if (num > m_purged_xcn) {
-    m_purged_xcn.store(num);
-    write(m_purged_xcn);
-  }
-}
-template void Purged_cnum<gcn_t, GCS_DATA_PURGE_GCN>::init();
-template void Purged_cnum<gcn_t, GCS_DATA_PURGE_GCN>::flush(gcn_t num);
-template gcn_t Purged_cnum<gcn_t, GCS_DATA_PURGE_GCN>::read();
-template gcn_t Purged_cnum<gcn_t, GCS_DATA_PURGE_GCN>::get();
-template void Purged_cnum<gcn_t, GCS_DATA_PURGE_GCN>::write(gcn_t num);
 
 /**
   Initialize / reload purged_scn from purge_sys->purge_heap
@@ -268,7 +208,7 @@ void trx_purge_set_purged_scn(scn_t txn_scn) {
 
   @retval       bool        true if the corresponding txn has been purged
 */
-bool precheck_if_txn_is_purged(txn_rec_t *txn_rec) {
+bool precheck_if_txn_is_purged(const txn_rec_t *txn_rec) {
   if (!undo_ptr_is_active(txn_rec->undo_ptr)) {
     /** scn must allocated */
     lizard_ut_ad(txn_rec->scn > 0 && txn_rec->scn < SCN_MAX);
@@ -276,6 +216,69 @@ bool precheck_if_txn_is_purged(txn_rec_t *txn_rec) {
     return (txn_rec->scn <= purge_sys->purged_scn);
   }
   return false;
+}
+
+void trx_purge_add_sp_list(trx_rseg_t *rseg, trx_rsegf_t *rseg_hdr,
+                           trx_ulogf_t *log_hdr, ulint type, mtr_t *mtr) {
+  ut_ad(mutex_own(&rseg->mutex));
+
+  if (type == TRX_UNDO_UPDATE) {
+    flst_add_first(rseg_hdr + TRX_RSEG_SEMI_PURGE_LIST,
+                   log_hdr + TRX_UNDO_HISTORY_NODE, mtr);
+  }
+}
+
+/**
+ * Removes the undo segment from the history list.
+ *
+ * @param[in] rseg            Rollback segment
+ * @param[in] hdr_addr        File address of log_hdr
+ */
+void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr) {
+  mtr_t mtr;
+  page_t *undo_page;
+  trx_rsegf_t *rseg_hdr;
+  trx_ulogf_t *log_hdr;
+  trx_usegf_t *seg_hdr;
+  ulint seg_size;
+  ulint hist_size;
+  ulint sp_size;
+  ulint type;
+
+  mtr_start(&mtr);
+  mutex_enter(&rseg->mutex);
+
+  rseg_hdr =
+      trx_rsegf_get(rseg->space_id, rseg->page_no, rseg->page_size, &mtr);
+  undo_page = trx_undo_page_get(page_id_t(rseg->space_id, hdr_addr.page),
+                                rseg->page_size, &mtr);
+  seg_hdr = undo_page + TRX_UNDO_SEG_HDR;
+  log_hdr = undo_page + hdr_addr.boffset;
+  type = mach_read_from_2(undo_page + TRX_UNDO_PAGE_HDR + TRX_UNDO_PAGE_TYPE);
+
+  ut_ad(type == TRX_UNDO_UPDATE);
+  ut_ad(lizard::trx_useg_is_2pc_purge(undo_page, rseg->page_size, &mtr));
+  ut_ad(mach_read_from_2(log_hdr + TRX_UNDO_NEXT_LOG) == 0);
+
+  seg_size = flst_get_len(seg_hdr + TRX_UNDO_PAGE_LIST);
+  hist_size =
+      mtr_read_ulint(rseg_hdr + TRX_RSEG_HISTORY_SIZE, MLOG_4BYTES, &mtr);
+  sp_size = mtr_read_ulint(rseg_hdr + TRX_RSEG_SEMI_PURGE_LIST_SIZE,
+                           MLOG_4BYTES, &mtr);
+  ut_ad(hist_size >= seg_size);
+  ut_ad(rseg->get_curr_size() >= seg_size);
+  ut_ad(rseg->get_curr_size() > (hist_size + sp_size));
+
+  trx_purge_remove_log_hdr(rseg_hdr, log_hdr, &mtr);
+  mlog_write_ulint(rseg_hdr + TRX_RSEG_HISTORY_SIZE, hist_size - seg_size,
+                   MLOG_4BYTES, &mtr);
+
+  trx_purge_add_sp_list(rseg, rseg_hdr, log_hdr, type, &mtr);
+  mlog_write_ulint(rseg_hdr + TRX_RSEG_SEMI_PURGE_LIST_SIZE, sp_size + seg_size,
+                   MLOG_4BYTES, &mtr);
+
+  mutex_exit(&rseg->mutex);
+  mtr_commit(&mtr);
 }
 
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
@@ -313,84 +316,13 @@ bool purged_scn_validation() {
 }
 #endif /* UNIV_DEBUG || defined LIZARD_DEBUG */
 
-void Purge_blocked_stat::get(String *blocked_cause, ulint *utc) {
-  mutex_enter(&m_mutex);
-  *utc = m_utc;
-  switch (m_blocked_cause) {
-    case purge_blocked_cause_t::BLOCKED_BY_VISION:
-      blocked_cause->set_ascii(
-          C_STRING_WITH_LEN("The purge sys is blocked by an active vision."));
-      break;
-    case purge_blocked_cause_t::RETENTION_BY_SPACE:
-      snprintf(detailed_cause, sizeof(detailed_cause),
-               "Undo retention is triggered by space. The current size of undo "
-               "is %lu MB, which is less than the configured "
-               "innodb_undo_space_reserved_size of %lu MB.",
-               m_undo_used_size, m_retention_reserved_size);
-      blocked_cause->copy(detailed_cause, strlen(detailed_cause),
-                          blocked_cause->charset());
-      break;
-    case purge_blocked_cause_t::RETENTION_BY_TIME:
-      snprintf(detailed_cause, sizeof(detailed_cause),
-               "Undo retention is triggered by time. The undo has been "
-               "retained for %lu seconds, which is less than the configured "
-               "innodb_undo_retention of %lu seconds.",
-               m_undo_retained_time, m_retention_time);
-      blocked_cause->copy(detailed_cause, strlen(detailed_cause),
-                          blocked_cause->charset());
-      break;
-    case purge_blocked_cause_t::BLOCKED_BY_HB:
-      blocked_cause->set_ascii(
-          C_STRING_WITH_LEN("The purge sys is blocked because no heartbeat has "
-                            "been received for a long time."));
-      break;
-    case purge_blocked_cause_t::NO_UNDO_LEFT:
-      blocked_cause->set_ascii(
-          C_STRING_WITH_LEN("No undo logs left in the history list."));
-      break;
-    default:
-      blocked_cause->set_ascii(
-          C_STRING_WITH_LEN("The purge sys is not blocked."));
-      break;
+void trx_purge_start_history() {
+  que_thr_t *thr = nullptr;
+  for (thr = UT_LIST_GET_FIRST(purge_sys->query->thrs); thr != nullptr;
+       thr = UT_LIST_GET_NEXT(thrs, thr)) {
+    purge_node_t *node = static_cast<purge_node_t *>(thr->child);
+    node->start_history_purge();
   }
-  mutex_exit(&m_mutex);
-}
-
-void Purge_blocked_stat::set(purge_blocked_cause_t cause, ulint utc) {
-  mutex_enter(&m_mutex);
-  m_blocked_cause = cause;
-  m_utc = utc;
-  m_undo_used_size = 0;
-  m_retention_reserved_size = 0;
-  m_undo_retained_time = 0;
-  m_retention_time = 0;
-  mutex_exit(&m_mutex);
-}
-
-void Purge_blocked_stat::retained_by_space(purge_blocked_cause_t cause,
-                                           ulint utc, ulint used_size,
-                                           ulint undo_retention_reserved_size) {
-  mutex_enter(&m_mutex);
-  m_blocked_cause = cause;
-  m_utc = utc;
-  m_undo_used_size = used_size;
-  m_retention_reserved_size = undo_retention_reserved_size;
-  m_undo_retained_time = 0;
-  m_retention_time = 0;
-  mutex_exit(&m_mutex);
-}
-
-void Purge_blocked_stat::retained_by_time(purge_blocked_cause_t cause,
-                                          ulint utc, ulint retained_time,
-                                          ulint undo_retention_time) {
-  mutex_enter(&m_mutex);
-  m_blocked_cause = cause;
-  m_utc = utc;
-  m_undo_retained_time = retained_time;
-  m_retention_time = undo_retention_time;
-  m_undo_used_size = 0;
-  m_retention_reserved_size = 0;
-  mutex_exit(&m_mutex);
 }
 
 }  // namespace lizard

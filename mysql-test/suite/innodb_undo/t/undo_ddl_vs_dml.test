@@ -4,6 +4,7 @@
 #
 # InnoDB should make the way wide and smooth for undo truncation
 # to occur while dml is happening.
+--source include/skip_flashback_area.inc
 
 CREATE UNDO TABLESPACE undo_007 ADD DATAFILE 'undo_007.ibu';
 CREATE UNDO TABLESPACE undo_008 ADD DATAFILE 'undo_008.ibu';

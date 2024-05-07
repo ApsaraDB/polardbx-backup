@@ -1,5 +1,6 @@
 --source include/have_innodb_16k.inc
 --source include/have_debug.inc
+--source include/skip_flashback_area.inc
 
 --echo # Create a table with rows which can be small or large
 --echo # depending on our wish:

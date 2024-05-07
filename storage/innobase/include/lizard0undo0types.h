@@ -40,6 +40,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0scn0types.h"
 #include "lizard0txn.h"
 
+#include "sql/lizard/lizard_rpl_gcn.h"
+
 struct trx_rseg_t;
 struct trx_undo_t;
 
@@ -352,6 +354,10 @@ struct txn_undo_ptr_t {
   that: Access to the binding normal UNDOs (insert undo / update undo) is not
   safe from then on.
 
+  * TXN_STATE_ERASED: At the moment that the erase sys start erasing it. Notes
+  that: Access to the binding normal UNDOs (insert undo / update undo) is not
+  safe for 2pc-purge tables from then on.
+
   * TXN_STATE_REUSE: At the moment that the TXN headers are reused by another
   transactions. These TXN headers are reinited as TXN_STATE_ACTIVE, but for
   those UBAs who also pointed at them, are supposed to be TXN_STATE_REUSE.
@@ -363,7 +369,7 @@ struct txn_undo_ptr_t {
   So the life cycle of TXN hedaer:
 
   TXN_STATE_ACTIVE (Trx_A) ==> TXN_STATE_COMMITTED (Trx_A) ==>
-    TXN_STATE_PURGED (Trx_A) ==>
+    TXN_STATE_PURGED (Trx_A) ==> { (TXN_STATE_ERASED) (Trx_A) ==> }
       * TXN_STATE_REUSE  (from Trx_A's point of view)
       * TXN_STATE_ACTIVE (from Trx_B's point of view)
 */
@@ -371,6 +377,7 @@ enum txn_state_t {
   TXN_STATE_ACTIVE,
   TXN_STATE_COMMITTED,
   TXN_STATE_PURGED,
+  TXN_STATE_ERASED,
   TXN_STATE_REUSE,
   TXN_STATE_UNDO_CORRUPTED
 };
@@ -393,6 +400,8 @@ struct txn_undo_hdr_t {
   ulint ext_storage;
   /** flags of the TXN. For example: 0x01 means rollback. */
   ulint tags_1;
+  /** true if the TXN is 2pc purge. */
+  bool is_2pc_purge;
   /** Return true if the transaction was eventually rolled back. */
   bool is_rollback() const;
   /** Return true if the txn has new_flags. */

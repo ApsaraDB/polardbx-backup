@@ -266,10 +266,11 @@ SET(INNOBASE_SOURCES
   row/lizard0row.cc
   srv/lizard0mon.cc
   btr/lizard0cleanout.cc
+  trx/lizard0purge.cc
+  trx/lizard0erase.cc
   ut/lizard0ut.cc
   page/lizard0page.cc
   read/lizard0read.cc
-  trx/lizard0purge.cc
   trx/lizard0trx.cc
   dict/lizard0gcs0hist.cc
   row/lizard0mysql.cc

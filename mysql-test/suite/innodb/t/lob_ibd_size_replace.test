@@ -1,5 +1,6 @@
 --source include/not_valgrind.inc
 --source include/have_debug.inc
+--source include/skip_flashback_area.inc
 
 --echo #
 --echo # BUG 31222046 - .IDB GROWS INDEFENITELY (BUG #96466 WITH REPLACE)

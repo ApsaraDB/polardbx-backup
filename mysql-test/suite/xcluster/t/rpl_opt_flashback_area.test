@@ -1,0 +1,29 @@
+--source include/skip_flashback_area.inc
+
+--connect (conn1,127.0.0.1,root,,test,$MYPORT_1)
+--connection conn1
+
+--connect (conn2,127.0.0.1,root,,test,$MYPORT_2)
+--connection conn2
+
+--connection conn1
+show variables like "opt_flashback_area";
+
+--connection conn2
+show variables like "opt_flashback_area";
+
+--connection conn1
+set session opt_flashback_area = 1;
+create table zjy (id int) engine = innodb;
+
+--connection conn2
+--source include/wait_apply_catchup.inc
+select options from information_schema.innodb_table_status where table_name like "zjy";
+
+--connection conn1
+drop table zjy;
+
+--disconnect conn1
+--disconnect conn2
+
+--connection default

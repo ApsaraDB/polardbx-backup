@@ -2734,6 +2734,9 @@ detect this and will eventually quit sooner. */
 
   /** Determine if the table can support instant ADD/DROP COLUMN */
   inline bool support_instant_add_drop() const;
+
+  /** Lizard: 2pc purge on table. */
+  bool is_2pc_purge;
 };
 
 static inline void DICT_TF2_FLAG_SET(dict_table_t *table, uint32_t flag) {

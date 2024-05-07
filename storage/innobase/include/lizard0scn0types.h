@@ -57,6 +57,12 @@ enum csr_t {
 
 /** Commit undo structure {SCN, UTC, GCN} */
 struct commit_mark_t {
+ public:
+  commit_mark_t();
+
+  commit_mark_t(scn_t scn_arg, utc_t us_arg, gcn_t gcn_arg, csr_t csr_arg)
+      : scn(scn_arg), us(us_arg), gcn(gcn_arg), csr(csr_arg) {}
+
   scn_t scn;
   utc_t us;
   gcn_t gcn;
@@ -74,6 +80,27 @@ inline bool operator==(const commit_mark_t &lhs, const commit_mark_t &rhs) {
 
   return false;
 }
+
+/** Commit order status of a rollback segment {SCN, UTC, GCN}, and also of
+purge_sys, erase sys, free sys whose undo header iters are come from
+commit_order_t of rollback segment. */
+struct commit_order_t {
+  scn_t scn;
+  utc_t us;
+  gcn_t gcn;
+
+  commit_order_t() : scn(0), us(0), gcn(0) {}
+
+  void set_null() {
+    scn = 0;
+    us = 0;
+    gcn = 0;
+  }
+
+  bool is_null() const { return scn == 0 && us == 0 && gcn == 0; }
+
+  commit_order_t &operator=(const commit_mark_t &cmmt);
+};
 
 /** Commit scn state */
 enum scn_state_t {

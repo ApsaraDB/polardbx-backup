@@ -1,0 +1,12 @@
+show variables like "opt_flashback_area";
+Variable_name	Value
+opt_flashback_area	OFF
+show variables like "opt_flashback_area";
+Variable_name	Value
+opt_flashback_area	OFF
+set session opt_flashback_area = 1;
+create table zjy (id int) engine = innodb;
+select options from information_schema.innodb_table_status where table_name like "zjy";
+options
+avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+drop table zjy;

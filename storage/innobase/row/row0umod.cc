@@ -1214,12 +1214,13 @@ static void row_undo_mod_parse_undo_rec(undo_node_t *node, THD *thd,
   ulint type;
   ulint cmpl_info;
   bool dummy_extern;
+  bool is_2pc_purge = false;
   type_cmpl_t type_cmpl;
 
   txn_info_t txn_info;
 
   ptr = trx_undo_rec_get_pars(node->undo_rec, &type, &cmpl_info, &dummy_extern,
-                              &undo_no, &table_id, type_cmpl);
+                              &undo_no, &table_id, &is_2pc_purge, type_cmpl);
   node->rec_type = type;
 
   /* Although table IX lock is held now, DROP TABLE could still be

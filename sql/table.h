@@ -1291,6 +1291,9 @@ struct TABLE_SHARE {
 
   /** Sequence attributes represent that it is sequence table */
   Sequence_property *sequence_property;
+
+  /** Whether the table has flashback area. */
+  bool flashback_area{false};
 };
 
 /**
@@ -2415,6 +2418,9 @@ struct TABLE {
 
   /** Table snapshot that come from snapshot hint on statement. */
   lizard::Table_snapshot table_snapshot;
+
+  /** Whether the table has flashback area. */
+  bool flashback_area{false};
 };
 
 static inline void empty_record(TABLE *table) {
@@ -3956,7 +3962,12 @@ class Table_ref {
   /** Snapshot hint upon table */
   lizard::Snapshot_hint *snapshot_hint{nullptr};
 
-  bool process_snapshot_hint(THD *thd);
+  bool process_snapshot_hint(THD *thd, TABLE *tbl);
+
+  /** Set flashback_area flag in the snapshot_hint and force the use of the
+    clustered index for as-of queries when the session variable
+    'opt_query_via_flashback_area' is enabled. */
+  void choose_flashback_area(THD *thd, TABLE *tbl);
 };
 
 /*

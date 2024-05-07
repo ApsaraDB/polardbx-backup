@@ -69,7 +69,8 @@ typedef enum {
  */
 class Snapshot_hint {
  public:
-  explicit Snapshot_hint(Item *item) : m_item(item) {}
+  explicit Snapshot_hint(Item *item)
+      : m_item(item), m_flashback_area(false) {}
 
   /** Item type. */
   virtual Snapshot_type type() const = 0;
@@ -104,8 +105,15 @@ class Snapshot_hint {
   /** Calculate number from hint item. */
   virtual bool val_int(uint64_t *value) = 0;
 
+  void set_flashback_area(bool value) { m_flashback_area = value; }
+
+  bool get_flashback_area() { return m_flashback_area; }
+
  protected:
   Item *m_item;
+
+  /** opt_query_via_flashback_area */
+  bool m_flashback_area;
 };
 
 /** Parse node special */
@@ -205,6 +213,8 @@ class Snapshot_gcn_hint : public Snapshot_hint {
  */
 class Snapshot_vision {
  public:
+  Snapshot_vision() : m_flashback_area(false) {}
+
   virtual ~Snapshot_vision() {}
 
   /*------------------------------------------------------------------------------*/
@@ -237,6 +247,14 @@ class Snapshot_vision {
   virtual bool modification_visible(void *txn_rec) const = 0;
 
   virtual my_trx_id_t up_limit_tid() const { return 0; }
+
+  void set_flashback_area(bool value) { m_flashback_area = value; }
+
+  bool get_flashback_area() { return m_flashback_area; }
+
+ protected:
+  /** opt_query_via_flashback_area */
+  bool m_flashback_area;
 };
 
 /**

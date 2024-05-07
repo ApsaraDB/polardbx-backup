@@ -53,8 +53,8 @@ static inline bool trx_purge_check_limit(void) {
   If a transaction uses multiple rollback segments then we need to
   consider the rollback segment space id too. */
 
-  return (purge_sys->iter.scn > purge_sys->limit.scn ||
-          (purge_sys->iter.scn == purge_sys->limit.scn &&
+  return (purge_sys->iter.ommt.scn > purge_sys->limit.ommt.scn ||
+          (purge_sys->iter.ommt.scn == purge_sys->limit.ommt.scn &&
            ((purge_sys->iter.undo_no >= purge_sys->limit.undo_no) ||
             (purge_sys->iter.undo_rseg_space !=
              purge_sys->limit.undo_rseg_space))));

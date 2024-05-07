@@ -11,6 +11,7 @@
 # Check actual behavior for table, partitioned table and temporary table
 # #############################################################
 --source include/have_debug.inc
+--source include/skip_flashback_area.inc
 
 # purge the previous test results
 --disable_query_log

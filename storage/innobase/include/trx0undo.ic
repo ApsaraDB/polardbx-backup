@@ -297,4 +297,7 @@ inline bool trx_undo_t::is_prepared() const {
          state == TRX_UNDO_PREPARED_IN_TC;
 }
 
+inline bool trx_undo_t::is_2pc_purge() const {
+  return flag & TRX_UNDO_FLAG_2PC_PURGE;
+}
 #endif /* !UNIV_HOTBACKUP */

@@ -182,4 +182,87 @@ struct Transaction_info {
 }  // namespace xa
 }  // namespace lizard
 
+namespace lizard {
+
+/** Rollback segment statistics */
+struct rseg_stat_t {
+ public:
+  explicit rseg_stat_t()
+      : rseg_pages(0),
+        history_length(0),
+        history_pages(0),
+        secondary_length(0),
+        secondary_pages(0) {}
+
+ public:
+  uint64_t rseg_pages;
+  uint64_t history_length;
+  uint64_t history_pages;
+  uint64_t secondary_length;
+  uint64_t secondary_pages;
+};
+
+
+/** Undo tablespace status include purge/erase state */
+class trunc_status_t {
+ public:
+  trunc_status_t()
+      : undo_name(),
+        file_pages(0),
+        rseg_stat(),
+        oldest_history_utc(0),
+        oldest_secondary_utc(0),
+        oldest_history_scn(0),
+        oldest_secondary_scn(0),
+        oldest_history_gcn(0),
+        oldest_secondary_gcn(0) {}
+
+  void aggregate(const rseg_stat_t &value) {
+    rseg_stat.rseg_pages += value.rseg_pages;
+    rseg_stat.history_length += value.history_length;
+    rseg_stat.history_pages += value.history_pages;
+    rseg_stat.secondary_length += value.secondary_length;
+    rseg_stat.secondary_pages += value.secondary_pages;
+  }
+
+  std::string undo_name;
+  uint64_t file_pages;
+
+  rseg_stat_t rseg_stat;
+
+  my_utc_t oldest_history_utc;
+  my_utc_t oldest_secondary_utc;
+
+  my_scn_t oldest_history_scn;
+  my_scn_t oldest_secondary_scn;
+
+  my_gcn_t oldest_history_gcn;
+  my_gcn_t oldest_secondary_gcn;
+};
+
+class purge_status_t {
+ public:
+  purge_status_t()
+      : history_length(0),
+        current_scn(0),
+        current_gcn(0),
+        purged_scn(0),
+        purged_gcn(0),
+        erased_scn(0),
+        erased_gcn(0) {}
+
+  uint64_t history_length;
+
+  my_scn_t current_scn;
+  my_gcn_t current_gcn;
+
+  my_scn_t purged_scn;
+  my_gcn_t purged_gcn;
+
+  my_scn_t erased_scn;
+  my_gcn_t erased_gcn;
+};
+
+}  // namespace lizard
+
 #endif

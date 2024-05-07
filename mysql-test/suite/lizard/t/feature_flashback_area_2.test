@@ -1,0 +1,216 @@
+--source include/have_debug.inc
+
+CALL mtr.add_suppression("'innodb-scn-history-interval': unsigned value 0 adjusted to 1");
+
+connect (con1,localhost,root,,);
+connect (con2,localhost,root,,);
+
+connection default;
+set global innodb_undo_retention = 0;
+set global innodb_txn_retention = 36000;
+set global innodb_purge_rseg_truncate_frequency = 1;
+set global innodb_undo_log_truncate = 1;
+
+--echo =============================================
+--echo Test basic flashback_area
+--echo =============================================
+--echo === test flashback_area option in DD ===
+set opt_flashback_area = 1; 
+create table bar (c1 int, c2 int, primary key(c1), key(c2));
+insert into bar values (1, 1);
+insert into bar values (2, 2);
+select * from information_schema.innodb_table_status where table_name='bar';
+
+--echo
+--echo === test flashback to a future moment ===
+set query_via_flashback_area = 1;
+--error ER_SNAPSHOT_OUT_OF_RANGE
+select * from bar as of timestamp date_add(now(), interval 2 hour);
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo
+--echo === test flashback to purged data ===
+set @past_timestamp = (select now());
+sleep 2;
+update bar set c2 = 3 where c1 = 1;
+--source include/wait_innodb_all_purged.inc
+sleep 2;
+--error ER_SNAPSHOT_TOO_OLD
+select * from bar as of timestamp @past_timestamp;
+--error ER_SNAPSHOT_TOO_OLD
+select c1 from bar as of timestamp @past_timestamp force index(c2) where c2 = 1;
+
+--echo
+--echo === test flashback to purged data via flashback area ===
+set @past_timestamp = (select now());
+sleep 2;
+update bar set c2 = 4 where c1 = 1;
+--source include/wait_innodb_all_purged.inc
+sleep 2;
+set query_via_flashback_area = 1;
+select * from bar as of timestamp @past_timestamp;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+set query_via_flashback_area = 1;
+select c1 from bar as of timestamp @past_timestamp force index(c2) where c2 = 3;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo
+--echo === test flashback to erased data via flashback area ===
+set global innodb_txn_retention = 0;
+set @past_timestamp = (select now());
+sleep 2;
+update bar set c2 = 5 where c1 = 1;
+--source include/wait_innodb_all_purged.inc
+sleep 2;
+set query_via_flashback_area = 1;
+--error ER_SNAPSHOT_TOO_OLD
+select * from bar as of timestamp @past_timestamp;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+set query_via_flashback_area = 1;
+--error ER_SNAPSHOT_TOO_OLD
+select c1 from bar as of timestamp @past_timestamp force index(c2) where c2 = 4;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+drop table bar;
+
+--echo ====================================================
+--echo Test flashback_area across different DDL operations.
+--echo ====================================================
+connection con1;
+set opt_flashback_area = 1; 
+set global innodb_undo_retention = 0;
+set global innodb_txn_retention = 36000;
+
+create table t1 (c1 int, c2 int, primary key(c1));
+insert into t1 values (1, 100);
+insert into t1 values (2, 200);
+
+create table t2 like t1;
+create table t3 like t1;
+create table t4 like t1;
+create table t5 like t1;
+insert into t2 select * from t1;
+insert into t3 select * from t1;
+insert into t4 select * from t1;
+insert into t5 select * from t1;
+
+set opt_flashback_area = 0; 
+create table t6 like t1;
+create table t7 like t1;
+create table t8 like t1;
+create table t9 like t1;
+create table t10 like t1;
+insert into t6 select * from t1;
+insert into t7 select * from t1;
+insert into t8 select * from t1;
+insert into t9 select * from t1;
+insert into t10 select * from t1;
+
+select * from information_schema.innodb_table_status where schema_name='test';
+
+set global innodb_undo_retention = 3600;
+set opt_flashback_area = 0; 
+sleep 2;
+set @past_timestamps = (select now());
+sleep 2;
+
+--echo === t2 ===
+alter table t2 add c3 int default 100;
+select * from information_schema.innodb_table_status where table_name='t2';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t2 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t3 ===
+alter table t3 add c3 int default 100, ALGORITHM = copy;
+select * from information_schema.innodb_table_status where table_name='t3';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t3 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t4 ===
+drop table t4;
+create table t4 as select * from t1;
+select * from information_schema.innodb_table_status where table_name='t4';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t4 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t5 ===
+alter table t5 add c3 int after c1;
+select * from information_schema.innodb_table_status where table_name='t5';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t5 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t6 ===
+set global innodb_undo_retention = 0;
+--source include/wait_innodb_all_purged.inc
+set opt_flashback_area = 1; 
+alter table t6 add index sec(c2);
+select * from information_schema.innodb_table_status where table_name='t6';
+update t6 set c2 = 1 where c1 = 1;
+update t6 set c2 = 2 where c1 = 2;
+begin;
+set query_via_flashback_area = 1;
+select * from t6 as of timestamp @past_timestamps;
+select * from t6 as of timestamp @past_timestamps force index(sec);
+select c2 from t6 as of timestamp @past_timestamps force index(primary);
+commit;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t7 ===
+alter table t7 row_format = compressed;
+select * from information_schema.innodb_table_status where table_name='t7';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t7 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t8 ===
+alter table t8 change c2 c2_a bigint not null;
+select * from information_schema.innodb_table_status where table_name='t8';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t8 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t9 ===
+alter table t9 rename column c2 to c3;
+select * from information_schema.innodb_table_status where table_name='t9';
+set query_via_flashback_area = 1;
+select * from t9 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+--echo === t10 ===
+alter table t10 drop primary key, add primary key(c2);
+select * from information_schema.innodb_table_status where table_name='t10';
+set query_via_flashback_area = 1;
+--error ER_AS_OF_TABLE_DEF_CHANGED
+select * from t10 as of timestamp @past_timestamps;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+
+set opt_flashback_area = default;
+set global innodb_undo_retention = default;
+set global innodb_txn_retention = default;
+set global innodb_purge_rseg_truncate_frequency = default;
+set global innodb_undo_log_truncate = default;
+
+connection default;
+
+disconnect con1;
+disconnect con2;
+drop table t1;
+drop table t2;
+drop table t3;
+drop table t4;
+drop table t5;
+drop table t6;
+drop table t7;
+drop table t8;
+drop table t9;
+drop table t10;

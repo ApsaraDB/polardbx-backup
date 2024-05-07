@@ -43,8 +43,8 @@
 
 #include "sql/package/show_native_procedure.h"
 
+#include "sql/lizard/undo_proc.h"
 #include "sql/xa/lizard_xa_proc.h"
-#include "sql/package/proc_undo_purge.h"
 
 namespace im {
 
@@ -148,7 +148,9 @@ void package_context_init() {
   /* dbms_trans.returning() */
   register_package<Proc, Trans_proc_returning>(TRANS_PROC_SCHEMA);
 
- /* dbms_undo.purge_status() */
+  /* dbms_undo.trunc_status() */
+  register_package<Proc, Proc_trunc_status>(PROC_UNDO_SCHEMA);
+  /* dbms_undo.purge_status() */
   register_package<Proc, Proc_purge_status>(PROC_UNDO_SCHEMA);
 
   /* dbms_ccl.add_ccl_rule(...) */

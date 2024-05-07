@@ -105,6 +105,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_innopart.h"
 #include "partition_info.h"
 
+#include "sql/dd/lizard_dd_table.h"
+
 /** Function to convert the Instant_Type to a comparable int */
 inline uint16_t instant_type_to_int(Instant_Type type) {
   return (static_cast<typename std::underlying_type<Log_Type>::type>(type));
@@ -4652,6 +4654,9 @@ template <typename Table>
 
     /* TODO: Fix this problematic assignment */
     ctx->new_table->dd_space_id = new_dd_tab->tablespace_id();
+
+    ctx->new_table->is_2pc_purge =
+        lizard::dd_table_get_flashback_area(*new_dd_tab);
 
     /* The rebuilt indexed_table will use the renamed
     column names. */

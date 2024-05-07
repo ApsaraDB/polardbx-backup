@@ -44,11 +44,6 @@ struct mtr_t;
 /** purged_scn is not valid */
 constexpr scn_t PURGED_SCN_INVALID = lizard::SCN_NULL;
 
-#ifdef UNIV_PFS_MUTEX
-/* lizard purge blocked stat mutex PFS key */
-extern mysql_pfs_key_t purge_blocked_stat_mutex_key;
-#endif
-
 namespace lizard {
 
 /**
@@ -110,37 +105,6 @@ struct TxnUndoRsegsIterator {
   static const TxnUndoRsegs NullElement;
 };
 
-/** Persistence of purged commit number. For scn or gcn */
-template <typename XCN, unsigned long long POS>
-class Purged_cnum {
- public:
-  Purged_cnum() : m_purged_xcn(0), m_inited(false) {}
-  virtual ~Purged_cnum() {}
-
-  void init();
-  /**
-    Attention:
-
-    If flush commit number > m_purged_xcn, it will flush commit number into
-    lizard tablespace, but it didn't sync the redo of modification.  if
-    related undo content has been purged, it mean that those undo's redo
-    has been synced, because the redo of flushing commit number is prior of
-    undo's redo. so it's unnecessary to sync it specially.
-  */
-  void flush(XCN num);
-
-  XCN get();
-
- private:
-  XCN read();
-
-  void write(XCN num);
-
- private:
-  std::atomic<XCN> m_purged_xcn;
-  bool m_inited;
-};
-
 /**
   Initialize / reload purged_scn from purge_sys->purge_heap
 
@@ -163,7 +127,18 @@ void trx_purge_set_purged_scn(scn_t txn_scn);
 
   @retval       bool        true if the corresponding txn has been purged
 */
-bool precheck_if_txn_is_purged(txn_rec_t *txn_rec);
+bool precheck_if_txn_is_purged(const txn_rec_t *txn_rec);
+
+void trx_purge_add_sp_list(trx_rseg_t *rseg, trx_rsegf_t *rseg_hdr,
+                           trx_ulogf_t *log_hdr, ulint type, mtr_t *mtr);
+
+/**
+ * Removes the undo segment from the history list.
+ *
+ * @param[in] rseg            Rollback segment
+ * @param[in] hdr_addr        File address of log_hdr
+ */
+void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr);
 
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
 /**
@@ -175,57 +150,9 @@ bool purged_scn_validation();
 
 #endif /* UNIV_DEBUG || defined LIZARD_DEBUG */
 
-enum purge_blocked_cause_t {
-  UNBLOCKED,
-  BLOCKED_BY_VISION,
-  RETENTION_BY_TIME,
-  RETENTION_BY_SPACE,
-  BLOCKED_BY_HB,
-  NO_UNDO_LEFT
-};
-
-/** Blocked reason of purge sys. */
-class Purge_blocked_stat {
- public:
-  Purge_blocked_stat()
-      : m_blocked_cause(purge_blocked_cause_t::UNBLOCKED),
-        m_undo_used_size(0),
-        m_undo_retained_time(0),
-        m_retention_time(0),
-        m_retention_reserved_size(0),
-        m_utc(0) {
-    mutex_create(LATCH_ID_PURGE_BLOCKED_STAT, &m_mutex);
-  }
-
-  virtual ~Purge_blocked_stat() { mutex_free(&m_mutex); }
-
-  void get(String *blocked_cause, ulint *utc);
-
-  void set(purge_blocked_cause_t cause, ulint utc);
-
-  void retained_by_space(purge_blocked_cause_t cause, ulint utc,
-                         ulint used_size, ulint undo_retention_reserved_size);
-
-  void retained_by_time(purge_blocked_cause_t cause, ulint utc,
-                        ulint retained_time, ulint undo_retention_time);
-
- private:
-  ib_mutex_t m_mutex;
-  purge_blocked_cause_t m_blocked_cause;
-  /** info used when blocking is caused by retention */
-  ulint m_undo_used_size;
-  ulint m_undo_retained_time;
-  ulint m_retention_time;
-  ulint m_retention_reserved_size;
-  /** utc when purge sys is blocked. 0 when purge sys is not blocked */
-  ulint m_utc;
-
-  char detailed_cause[256] = {0};
-};
+extern void trx_purge_start_history();
 
 }  // namespace lizard
-
-using Purged_gcn = lizard::Purged_cnum<gcn_t, GCS_DATA_PURGE_GCN>;
 
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
 

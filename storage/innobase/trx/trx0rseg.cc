@@ -314,13 +314,19 @@ static trx_rseg_t *trx_rseg_physical_initialize(trx_rseg_t *rseg,
 
   rseg->set_curr_size(
       mtr_read_ulint(rseg_header + TRX_RSEG_HISTORY_SIZE, MLOG_4BYTES, mtr) +
+      mtr_read_ulint(rseg_header + TXN_RSEG_FREE_LIST_SIZE, MLOG_4BYTES, mtr) +
       1 + sum_of_undo_sizes);
 
   /** Lizard: Initialize free list size */
   auto free_list_len = flst_get_len(rseg_header + TXN_RSEG_FREE_LIST);
-  if (free_list_len > 0) {
-    lizard_ut_ad(lizard::fsp_is_txn_tablespace_by_id(rseg->space_id));
+  if (lizard::fsp_is_txn_tablespace_by_id(rseg->space_id) &&
+      free_list_len > 0) {
+    // lizard_ut_ad(lizard::fsp_is_txn_tablespace_by_id(rseg->space_id));
     lizard::gcs->txn_undo_log_free_list_len += free_list_len;
+
+    fil_addr_t node_addr;
+    rseg->last_free_ommt =
+        lizard::txn_free_get_last_log(rseg, node_addr, mtr, nullptr);
   }
 
   /** Lizard: Init txn undo log hash table */
@@ -348,13 +354,12 @@ static trx_rseg_t *trx_rseg_physical_initialize(trx_rseg_t *rseg,
     /** Lizard: Retrieve the lowest SCN from history list. */
     commit_mark_t cmmt = lizard::trx_undo_hdr_read_cmmt(undo_log_hdr, mtr);
     assert_commit_mark_allocated(cmmt);
-    rseg->last_scn = cmmt.scn;
-    rseg->oldest_utc_in_txn_free = 0;
+    rseg->last_ommt = cmmt;
 
     rseg->last_del_marks =
         mtr_read_ulint(undo_log_hdr + TRX_UNDO_DEL_MARKS, MLOG_2BYTES, mtr);
 
-    lizard::TxnUndoRsegs elem(rseg->last_scn);
+    lizard::TxnUndoRsegs elem(rseg->last_ommt.scn);
     elem.insert(rseg);
 
     if (rseg->last_page_no != FIL_NULL) {
@@ -462,13 +467,19 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
 
   rseg->set_curr_size(
       mtr_read_ulint(rseg_header + TRX_RSEG_HISTORY_SIZE, MLOG_4BYTES, mtr) +
+      mtr_read_ulint(rseg_header + TXN_RSEG_FREE_LIST_SIZE, MLOG_4BYTES, mtr) +
       1 + sum_of_undo_sizes);
 
   /** Lizard: Initialize free list size */
   auto free_list_len = flst_get_len(rseg_header + TXN_RSEG_FREE_LIST);
-  if (free_list_len > 0) {
-    lizard_ut_ad(lizard::fsp_is_txn_tablespace_by_id(rseg->space_id));
+  if (lizard::fsp_is_txn_tablespace_by_id(rseg->space_id) &&
+      free_list_len > 0) {
+    // lizard_ut_ad(lizard::fsp_is_txn_tablespace_by_id(rseg->space_id));
     lizard::gcs->txn_undo_log_free_list_len.fetch_add(free_list_len);
+
+    fil_addr_t node_addr;
+    rseg->last_free_ommt =
+        lizard::txn_free_get_last_log(rseg, node_addr, mtr, nullptr);
   }
 
   auto len = flst_get_len(rseg_header + TRX_RSEG_HISTORY);
@@ -496,8 +507,7 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
     /** Lizard: Retrieve the lowest SCN from history list. */
     commit_mark_t cmmt = lizard::trx_undo_hdr_read_cmmt(undo_log_hdr, mtr);
     assert_commit_mark_allocated(cmmt);
-    rseg->last_scn = cmmt.scn;
-    rseg->oldest_utc_in_txn_free = 0;
+    rseg->last_ommt = cmmt;
 
 #ifdef UNIV_DEBUG
     /* Update last transactioin number during recovery. */
@@ -509,7 +519,7 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
     rseg->last_del_marks =
         mtr_read_ulint(undo_log_hdr + TRX_UNDO_DEL_MARKS, MLOG_2BYTES, mtr);
 
-    lizard::TxnUndoRsegs elem(rseg->last_scn);
+    lizard::TxnUndoRsegs elem(rseg->last_ommt.scn);
     elem.insert(rseg);
 
     if (rseg->last_page_no != FIL_NULL) {
@@ -525,7 +535,9 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
     }
   } else {
     rseg->last_page_no = FIL_NULL;
+    ut_a(rseg->last_ommt.is_null());
   }
+  ut_a(rseg->last_free_ommt.is_null());
 
   return rseg;
 }
@@ -1267,6 +1279,10 @@ bool trx_rseg_t::validate_curr_size(bool take_mutex) {
   /* Number of file pages occupied by the logs in the history list */
   ulint hist_size =
       mtr_read_ulint(rseg_hdr + TRX_RSEG_HISTORY_SIZE, MLOG_4BYTES, &mtr);
+  /* Number of file pages occupied by the txn logs in the free list. (semi-purge
+   * list for update undo.) */
+  ulint free_size =
+      mtr_read_ulint(rseg_hdr + TXN_RSEG_FREE_LIST_SIZE, MLOG_4BYTES, &mtr);
 
   ulint sum_undo_size = 0;
 
@@ -1297,7 +1313,7 @@ bool trx_rseg_t::validate_curr_size(bool take_mutex) {
   }
   mtr_commit(&mtr);
 
-  ulint total_size = sum_undo_size + hist_size + 1;
+  ulint total_size = sum_undo_size + hist_size + free_size + 1;
 
   ut_ad(total_size == curr_size);
 

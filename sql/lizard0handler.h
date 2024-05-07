@@ -42,6 +42,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard_iface.h"
 #include "sql_string.h"
 
+#include "sql/lizard/lizard_rpl_gcn.h"
+
 class THD;
 
 namespace im {
@@ -111,8 +113,8 @@ typedef void (*register_xa_attributes_t)(THD *thd);
 typedef my_gcn_t (*load_gcn_t)();
 typedef my_scn_t (*load_scn_t)();
 
-typedef bool (*snapshot_scn_too_old_t)(my_scn_t scn);
-typedef bool (*snapshot_gcn_too_old_t)(my_gcn_t gcn);
+typedef bool (*snapshot_scn_too_old_t)(my_scn_t scn, bool flashback_area);
+typedef bool (*snapshot_gcn_too_old_t)(my_gcn_t gcn, bool flashback_area);
 typedef void (*set_gcn_if_bigger_t)(my_gcn_t gcn);
 
 typedef bool (*start_trx_for_xa_t)(handlerton *hton, THD *thd, bool rw);
@@ -122,7 +124,8 @@ typedef bool (*search_trx_by_xid_t)(const XID *xid,
 typedef int (*convert_timestamp_to_scn_t)(THD *thd, my_utc_t utc,
                                           my_scn_t *scn);
 
-typedef void (*get_undo_purge_status_t)(im::Undo_purge_show_result *result);
+typedef void (*trunc_status_t)(std::vector<lizard::trunc_status_t> &array);
+typedef void (*purge_status_t)(lizard::purge_status_t &status);
 
 template <typename T>
 using search_up_limit_tid_t = my_trx_id_t (*)(const T &lhs);
@@ -149,6 +152,7 @@ struct handlerton_ext {
       search_up_limit_tid_for_scn;
   search_up_limit_tid_t<lizard::Snapshot_gcn_vision>
       search_up_limit_tid_for_gcn;
-  get_undo_purge_status_t get_undo_purge_status;
+  trunc_status_t trunc_status;
+  purge_status_t purge_status;
 };
 #endif

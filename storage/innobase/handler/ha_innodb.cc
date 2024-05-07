@@ -227,6 +227,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0xa.h"  // srv_stop_purge_no_heartbeat_timeout, ...
 
 #include "sql/xa_specification.h"
+#include "sql/dd/lizard_dd_table.h"
 
 #ifndef UNIV_HOTBACKUP
 
@@ -807,8 +808,7 @@ static PSI_mutex_info all_innodb_mutexes[] = {
     PSI_MUTEX_KEY(lizard_vision_list_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(gp_sys_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(gp_sys_wait_mutex, 0, 0, PSI_DOCUMENT_ME),
-    PSI_MUTEX_KEY(undo_retention_mutex, 0, 0, PSI_DOCUMENT_ME),
-    PSI_MUTEX_KEY(purge_blocked_stat_mutex, 0, 0, PSI_DOCUMENT_ME)};
+    PSI_MUTEX_KEY(undo_retention_mutex, 0, 0, PSI_DOCUMENT_ME)};
 #endif /* UNIV_PFS_MUTEX */
 
 #ifdef UNIV_PFS_RWLOCK
@@ -12085,6 +12085,11 @@ void innodb_base_col_setup_for_stored(const dict_table_t *table,
     dict_sys_mutex_enter();
     fts_optimize_add_table(table);
     dict_sys_mutex_exit();
+  }
+
+  if (err == DB_SUCCESS) {
+    table->is_2pc_purge =
+        dd_table ? lizard::dd_table_get_flashback_area(*dd_table) : false;
   }
 
   if (err == DB_SUCCESS) {

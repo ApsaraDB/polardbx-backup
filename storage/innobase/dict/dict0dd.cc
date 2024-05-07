@@ -81,6 +81,7 @@ Data dictionary interface */
 #include "lizard0row.h"
 #include "lizard0page.h"
 #include "lizard0data0types.h"
+#include "sql/dd/lizard_dd_table.h"
 
 const char *DD_instant_col_val_coder::encode(const byte *stream, size_t in_len,
                                              size_t *out_len) {
@@ -4889,6 +4890,11 @@ static inline dict_table_t *dd_fill_dict_table(const Table *dd_tab,
     /* This flag will be used to set file-per-table tablespace
     encryption flag */
     DICT_TF2_FLAG_SET(m_table, DICT_TF2_ENCRYPTION_FILE_PER_TABLE);
+  }
+
+  if (lizard::dd_table_get_flashback_area(dd_tab->table())) {
+    ut_ad(!m_table->is_temporary());
+    m_table->is_2pc_purge = true;
   }
 
   mem_heap_t *heap = mem_heap_create(1000, UT_LOCATION_HERE);

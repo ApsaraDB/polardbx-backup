@@ -5,6 +5,7 @@
 # purge for transaction which already has this gap locked before, which could
 # lead to wrong count of locks reported.
 --source include/have_debug_sync.inc
+--source include/skip_flashback_area.inc
 
 CREATE TABLE t1 (id INT PRIMARY KEY);
 INSERT INTO t1 (id) VALUES (1),(2),  (4),(5);

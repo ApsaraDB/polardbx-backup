@@ -417,16 +417,16 @@ enum scn_state_t commit_mark_state(const commit_mark_t &cmmt);
 }  // namespace lizard
 
 /** Commit scn initial value */
-#define COMMIT_MARK_NULL \
+#define CMMT_NULL \
   { lizard::SCN_NULL, lizard::US_NULL, lizard::GCN_NULL, CSR_AUTOMATIC }
 
-#define COMMIT_MARK_LOST                                                  \
-  {                                                                      \
+#define CMMT_LOST                                                       \
+  {                                                                     \
     lizard::SCN_UNDO_LOST, lizard::US_UNDO_LOST, lizard::GCN_UNDO_LOST, \
         CSR_AUTOMATIC                                                    \
   }
 
-inline bool commit_mark_is_lost(commit_mark_t &cmmt) {
+inline bool commit_mark_is_lost(const commit_mark_t &cmmt) {
   if (cmmt.scn == lizard::SCN_UNDO_LOST && cmmt.us == lizard::US_UNDO_LOST &&
       cmmt.gcn == lizard::GCN_UNDO_LOST) {
     return true;
@@ -439,6 +439,34 @@ inline bool commit_mark_is_uninitial(commit_mark_t &cmmt) {
     return true;
   }
   return false;
+}
+
+inline bool commit_mark_is_zero(commit_mark_t &cmmt) {
+  if (cmmt.scn == 0 && cmmt.us == 0 && cmmt.gcn == 0) {
+    return true;
+  }
+  return false;
+}
+
+inline bool commit_mark_is_null(const commit_mark_t &cmmt) {
+  if (cmmt.scn == lizard::SCN_NULL && cmmt.us == lizard::US_NULL &&
+      cmmt.gcn == lizard::GCN_NULL) {
+    return true;
+  }
+  return false;
+}
+
+/*****************************************
+ *            commit_order_t             *
+ *****************************************/
+inline commit_order_t &commit_order_t::operator=(const commit_mark_t &cmmt) {
+  ut_a(!commit_mark_is_null(cmmt));
+
+  scn = cmmt.scn;
+  us = cmmt.us;
+  gcn = cmmt.gcn;
+
+  return *this;
 }
 
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG

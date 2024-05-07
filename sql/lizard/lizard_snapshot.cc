@@ -286,6 +286,7 @@ int Snapshot_hint::evoke_vision(TABLE *table, THD *thd) {
 
   Snapshot_vision *vision = table->table_snapshot.get(type());
   vision->store_int(value);
+  vision->set_flashback_area(m_flashback_area);
 
   return table->table_snapshot.activate(vision, thd);
 }
@@ -370,7 +371,7 @@ int Snapshot_gcn_hint::evoke_vision(TABLE *table, THD *thd) {
 bool Snapshot_scn_vision::too_old() const {
   assert(m_scn != MYSQL_SCN_NULL);
 
-  if (innodb_hton->ext.snapshot_scn_too_old(m_scn)) {
+  if (innodb_hton->ext.snapshot_scn_too_old(m_scn, m_flashback_area)) {
     return true;
   }
   return false;
@@ -392,11 +393,14 @@ bool Snapshot_gcn_vision::too_old() const {
   switch (m_csr) {
     case MYSQL_CSR_AUTOMATIC:
       assert(m_current_scn != MYSQL_SCN_NULL && m_gcn != MYSQL_GCN_NULL);
-      return innodb_hton->ext.snapshot_scn_too_old(m_current_scn) ||
-             innodb_hton->ext.snapshot_automatic_gcn_too_old(m_gcn);
+      return innodb_hton->ext.snapshot_scn_too_old(m_current_scn,
+                                                   m_flashback_area) ||
+             innodb_hton->ext.snapshot_automatic_gcn_too_old(
+                 m_gcn, m_flashback_area);
     case MYSQL_CSR_ASSIGNED:
       assert(m_current_scn == MYSQL_SCN_NULL && m_gcn != MYSQL_GCN_NULL);
-      return  innodb_hton->ext.snapshot_assigned_gcn_too_old(m_gcn);
+      return innodb_hton->ext.snapshot_assigned_gcn_too_old(
+          m_gcn, m_flashback_area);
     default:
       assert(m_csr == MYSQL_CSR_NONE);
       return true;
@@ -497,6 +501,7 @@ int Table_snapshot::exchange_timestamp_vision_to_scn_vision(
   int error = 0;
   handlerton *ttse = innodb_hton;
 
+  bool flashback_area = (*vision)->get_flashback_area();
   my_utc_t utc_second = (*vision)->val_int();
   my_scn_t scn;
 
@@ -506,16 +511,71 @@ int Table_snapshot::exchange_timestamp_vision_to_scn_vision(
     *vision = get(AS_OF_SCN);
 
     (*vision)->store_int(scn);
+    (*vision)->set_flashback_area(flashback_area);
   }
   return error;
 }
 
 }  // namespace lizard
 
-bool Table_ref::process_snapshot_hint(THD *thd) {
+bool Table_ref::process_snapshot_hint(THD *thd, TABLE *tbl) {
   if (snapshot_hint) {
+    choose_flashback_area(thd, tbl);
+
     return snapshot_hint->fix_fields(thd);
   }
   return false;
 }
 
+/**
+  Set flashback_area flag in the snapshot_hint and force the use of the
+  clustered index for as-of queries when the session variable
+  'opt_query_via_flashback_area' is enabled.
+
+  @param thd The current session.
+  @param tbl the TABLE to operate on.
+*/
+void Table_ref::choose_flashback_area(THD *thd, TABLE *tbl) {
+  if (!thd->variables.opt_query_via_flashback_area || !tbl->flashback_area) {
+    return;
+  }
+
+  assert(snapshot_hint);
+  assert(thd->variables.opt_query_via_flashback_area);
+  assert(tbl->flashback_area);
+
+  /** set flag in the snapshot_hint. */
+  snapshot_hint->set_flashback_area(true);
+
+  /** increase the counter. */
+  thd->status_var.flashback_area_query_cnt++;
+
+  /* initialize the result variables */
+  tbl->keys_in_use_for_query = tbl->keys_in_use_for_group_by =
+      tbl->keys_in_use_for_order_by = tbl->s->usable_indexes(thd);
+
+  /** force using primary key. */
+  uint pos = 0;
+
+  Key_map index_join;
+  Key_map index_order;
+  Key_map index_group;
+
+  index_join.set_bit(pos);
+  index_order.set_bit(pos);
+  index_group.set_bit(pos);
+
+  tbl->force_index = true;
+  tbl->keys_in_use_for_query.intersect(index_join);
+
+  tbl->force_index_order = true;
+  tbl->keys_in_use_for_order_by.intersect(index_order);
+
+  tbl->force_index_group = true;
+  tbl->keys_in_use_for_group_by.intersect(index_group);
+
+  /* make sure covering_keys don't include indexes disabled with a hint */
+  tbl->covering_keys.intersect(tbl->keys_in_use_for_query);
+
+  return;
+}

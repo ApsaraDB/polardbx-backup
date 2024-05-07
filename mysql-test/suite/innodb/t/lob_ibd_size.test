@@ -1,4 +1,5 @@
 --source include/no_valgrind_without_big.inc
+--source include/skip_flashback_area.inc
 
 CREATE TABLE `t`
 (`id` INT NOT NULL AUTO_INCREMENT,

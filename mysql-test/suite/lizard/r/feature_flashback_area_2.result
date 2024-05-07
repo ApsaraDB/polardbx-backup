@@ -1,0 +1,245 @@
+CALL mtr.add_suppression("'innodb-scn-history-interval': unsigned value 0 adjusted to 1");
+set global innodb_undo_retention = 0;
+set global innodb_txn_retention = 36000;
+set global innodb_purge_rseg_truncate_frequency = 1;
+set global innodb_undo_log_truncate = 1;
+=============================================
+Test basic flashback_area
+=============================================
+=== test flashback_area option in DD ===
+set opt_flashback_area = 1;
+create table bar (c1 int, c2 int, primary key(c1), key(c2));
+insert into bar values (1, 1);
+insert into bar values (2, 2);
+select * from information_schema.innodb_table_status where table_name='bar';
+SCHEMA_NAME	TABLE_NAME	options
+test	bar	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+
+=== test flashback to a future moment ===
+set query_via_flashback_area = 1;
+select * from bar as of timestamp date_add(now(), interval 2 hour);
+ERROR HY000: The snapshot to find is out of range, please adjust scn history configuration
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	1
+
+=== test flashback to purged data ===
+set @past_timestamp = (select now());
+update bar set c2 = 3 where c1 = 1;
+select * from bar as of timestamp @past_timestamp;
+ERROR HY000: Snapshot too old
+select c1 from bar as of timestamp @past_timestamp force index(c2) where c2 = 1;
+ERROR HY000: Snapshot too old
+
+=== test flashback to purged data via flashback area ===
+set @past_timestamp = (select now());
+update bar set c2 = 4 where c1 = 1;
+set query_via_flashback_area = 1;
+select * from bar as of timestamp @past_timestamp;
+c1	c2
+1	3
+2	2
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	2
+set query_via_flashback_area = 1;
+select c1 from bar as of timestamp @past_timestamp force index(c2) where c2 = 3;
+c1
+1
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	3
+
+=== test flashback to erased data via flashback area ===
+set global innodb_txn_retention = 0;
+set @past_timestamp = (select now());
+update bar set c2 = 5 where c1 = 1;
+set query_via_flashback_area = 1;
+select * from bar as of timestamp @past_timestamp;
+ERROR HY000: Snapshot too old
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	4
+set query_via_flashback_area = 1;
+select c1 from bar as of timestamp @past_timestamp force index(c2) where c2 = 4;
+ERROR HY000: Snapshot too old
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	5
+drop table bar;
+====================================================
+Test flashback_area across different DDL operations.
+====================================================
+set opt_flashback_area = 1;
+set global innodb_undo_retention = 0;
+set global innodb_txn_retention = 36000;
+create table t1 (c1 int, c2 int, primary key(c1));
+insert into t1 values (1, 100);
+insert into t1 values (2, 200);
+create table t2 like t1;
+create table t3 like t1;
+create table t4 like t1;
+create table t5 like t1;
+insert into t2 select * from t1;
+insert into t3 select * from t1;
+insert into t4 select * from t1;
+insert into t5 select * from t1;
+set opt_flashback_area = 0;
+create table t6 like t1;
+create table t7 like t1;
+create table t8 like t1;
+create table t9 like t1;
+create table t10 like t1;
+insert into t6 select * from t1;
+insert into t7 select * from t1;
+insert into t8 select * from t1;
+insert into t9 select * from t1;
+insert into t10 select * from t1;
+select * from information_schema.innodb_table_status where schema_name='test';
+SCHEMA_NAME	TABLE_NAME	options
+test	t1	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t2	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t3	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t4	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t5	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t6	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t7	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t8	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t9	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+test	t10	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set global innodb_undo_retention = 3600;
+set opt_flashback_area = 0;
+set @past_timestamps = (select now());
+=== t2 ===
+alter table t2 add c3 int default 100;
+select * from information_schema.innodb_table_status where table_name='t2';
+SCHEMA_NAME	TABLE_NAME	options
+test	t2	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t2 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	0
+=== t3 ===
+alter table t3 add c3 int default 100, ALGORITHM = copy;
+select * from information_schema.innodb_table_status where table_name='t3';
+SCHEMA_NAME	TABLE_NAME	options
+test	t3	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t3 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	0
+=== t4 ===
+drop table t4;
+create table t4 as select * from t1;
+select * from information_schema.innodb_table_status where table_name='t4';
+SCHEMA_NAME	TABLE_NAME	options
+test	t4	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t4 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	0
+=== t5 ===
+alter table t5 add c3 int after c1;
+select * from information_schema.innodb_table_status where table_name='t5';
+SCHEMA_NAME	TABLE_NAME	options
+test	t5	avg_row_length=0;encrypt_type=N;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t5 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	0
+=== t6 ===
+set global innodb_undo_retention = 0;
+set opt_flashback_area = 1;
+alter table t6 add index sec(c2);
+select * from information_schema.innodb_table_status where table_name='t6';
+SCHEMA_NAME	TABLE_NAME	options
+test	t6	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+update t6 set c2 = 1 where c1 = 1;
+update t6 set c2 = 2 where c1 = 2;
+begin;
+set query_via_flashback_area = 1;
+select * from t6 as of timestamp @past_timestamps;
+c1	c2
+1	100
+2	200
+select * from t6 as of timestamp @past_timestamps force index(sec);
+c1	c2
+1	100
+2	200
+select c2 from t6 as of timestamp @past_timestamps force index(primary);
+c2
+100
+200
+commit;
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	3
+=== t7 ===
+alter table t7 row_format = compressed;
+select * from information_schema.innodb_table_status where table_name='t7';
+SCHEMA_NAME	TABLE_NAME	options
+test	t7	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;row_type=3;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t7 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	4
+=== t8 ===
+alter table t8 change c2 c2_a bigint not null;
+select * from information_schema.innodb_table_status where table_name='t8';
+SCHEMA_NAME	TABLE_NAME	options
+test	t8	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t8 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	5
+=== t9 ===
+alter table t9 rename column c2 to c3;
+select * from information_schema.innodb_table_status where table_name='t9';
+SCHEMA_NAME	TABLE_NAME	options
+test	t9	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t9 as of timestamp @past_timestamps;
+c1	c3
+1	100
+2	200
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	6
+=== t10 ===
+alter table t10 drop primary key, add primary key(c2);
+select * from information_schema.innodb_table_status where table_name='t10';
+SCHEMA_NAME	TABLE_NAME	options
+test	t10	avg_row_length=0;encrypt_type=N;flashback_area=1;key_block_size=0;keys_disabled=0;pack_record=0;stats_auto_recalc=0;stats_sample_pages=0;
+set query_via_flashback_area = 1;
+select * from t10 as of timestamp @past_timestamps;
+ERROR HY000: The definition of the table required by the flashback query has changed
+SHOW STATUS WHERE Variable_name = 'flashback_area_query_cnt';
+Variable_name	Value
+Flashback_area_query_cnt	7
+set opt_flashback_area = default;
+set global innodb_undo_retention = default;
+set global innodb_txn_retention = default;
+set global innodb_purge_rseg_truncate_frequency = default;
+set global innodb_undo_log_truncate = default;
+drop table t1;
+drop table t2;
+drop table t3;
+drop table t4;
+drop table t5;
+drop table t6;
+drop table t7;
+drop table t8;
+drop table t9;
+drop table t10;

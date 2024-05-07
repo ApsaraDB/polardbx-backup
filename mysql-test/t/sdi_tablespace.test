@@ -1,3 +1,5 @@
+--source include/skip_flashback_area.inc
+
 --echo #
 --echo # Bug#30878065: EXCHANGING PARTITION WITH TABLES DOES NOT UPDATE SDI CORRECTLY
 --echo #

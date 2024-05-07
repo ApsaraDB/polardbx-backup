@@ -291,6 +291,7 @@ SET(DD_SOURCES
   dd/upgrade_57/upgrade.cc
   dd/dd_minor_upgrade.cc
   dd/recycle_bin/dd_recycle.cc
+  dd/lizard_dd_table.cc
 )
 
 SET(SQL_GIS_SOURCES
@@ -649,7 +650,6 @@ SET(SQL_SHARED_SOURCES
   trans_proc/common.cc
   trans_proc/returning.cc
   trans_proc/returning_parse.cc
-  package/proc_undo_purge.cc
   trans_proc/implicit_savepoint.cc
   ccl/ccl_cache.cc
   ccl/ccl.cc
@@ -695,6 +695,7 @@ SET(SQL_SHARED_SOURCES
   lizard/lizard_snapshot.cc
   lizard_rpl_binlog_sender.cc
   lizard_rpl_rli.cc
+  lizard/undo_proc.cc
 )
 
 IF(BUILD_IS_SINGLE_CONFIG)

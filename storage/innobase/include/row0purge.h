@@ -44,6 +44,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0types.h"
 #include "ut0vec.h"
 
+#include "lizard0row0purge.h"
+
 /** Create a purge node to a query graph.
 @param[in]      parent  parent node, i.e., a thr node
 @param[in]      heap    memory heap where created
@@ -169,8 +171,14 @@ struct purge_node_t {
   /** trx id for this purging record */
   trx_id_t modifier_trx_id;
 
+  /** Lizard: true if it's a 2pc purge record.  */
+  bool is_2pc_purge;
+
   /** Undo recs to purge */
   Recs *recs;
+
+  /** Purge phase for 2pc purge. */
+  lizard::e_2pc_purge_phase phase;
 
   void init() { new (&m_lob_pages) LOB_free_set(); }
   void deinit() {
@@ -210,6 +218,12 @@ struct purge_node_t {
      the ref member.*/
   bool validate_pcur();
 #endif
+
+  /** Start purge history list. */
+  void start_history_purge() { phase = lizard::PURGE_HISTORY_LIST; }
+
+  /** Start erase semi-purge list. */
+  void start_sp_erase() { phase = lizard::PURGE_SP_LIST; }
 
  private:
   using LOB_free_set = std::set<Page_free_tuple, Compare_page_free_tuple,

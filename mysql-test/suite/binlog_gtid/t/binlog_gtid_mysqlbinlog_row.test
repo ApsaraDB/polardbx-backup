@@ -1,4 +1,5 @@
 --source include/have_binlog_format_row.inc
+--source include/skip_flashback_area.inc
 
 #
 # The test case records the output of mysqlbinlog, thence if compression

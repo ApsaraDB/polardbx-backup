@@ -9,6 +9,7 @@
 # do not run with compression on. Compression is not supported
 # for non-transactional engines.
 --source include/not_binlog_transaction_compression_on.inc
+--source include/skip_flashback_area.inc
 
 --source include/have_myisam.inc
 --let $engine_type_nontrans= MyISAM

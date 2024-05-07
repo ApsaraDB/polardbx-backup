@@ -4771,6 +4771,7 @@ class THD : public MDL_context_owner,
     variables.innodb_snapshot_gcn = MYSQL_GCN_NULL;
     variables.innodb_commit_gcn = MYSQL_GCN_NULL;
     variables.innodb_current_snapshot_gcn = false;
+    variables.opt_query_via_flashback_area = false;
 
     owned_commit_gcn.reset();
     owned_vision_gcn.reset();

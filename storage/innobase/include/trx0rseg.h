@@ -218,6 +218,16 @@ constexpr uint32_t TXN_RSEG_FREE_LIST_SIZE = (TRX_RSEG_HISTORY + FLST_BASE_NODE_
 /** Lizard: Free list base node */
 constexpr uint32_t TXN_RSEG_FREE_LIST = (TXN_RSEG_FREE_LIST_SIZE + 4);
 
+/** Lizard: semi-purge list for update undo log segment */
+constexpr uint32_t TRX_RSEG_SEMI_PURGE_LIST_SIZE =
+    (TRX_RSEG_HISTORY + FLST_BASE_NODE_SIZE);
+/** Lizard: semi-purge list base node */
+constexpr uint32_t TRX_RSEG_SEMI_PURGE_LIST =
+    (TRX_RSEG_SEMI_PURGE_LIST_SIZE + 4);
+
+static_assert(TXN_RSEG_FREE_LIST == TRX_RSEG_SEMI_PURGE_LIST,
+              "txn and trx rseg hdr size must be equal!");
+
 /* Header for the file segment where this page is placed */
 constexpr uint32_t TRX_RSEG_FSEG_HEADER =
     TXN_RSEG_FREE_LIST + FLST_BASE_NODE_SIZE;

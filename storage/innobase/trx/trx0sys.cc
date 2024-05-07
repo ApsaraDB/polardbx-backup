@@ -54,6 +54,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0undo.h"
 
 #include "lizard0read0types.h"
+#include "lizard0erase.h"
 
 /** The transaction system */
 trx_sys_t *trx_sys = nullptr;
@@ -636,6 +637,8 @@ void trx_sys_close(void) {
   trx_dummy_sess = nullptr;
 
   trx_purge_sys_close();
+
+  lizard::trx_erase_sys_close();
 
   /* Only prepared or active-recovered transactions may be left in the system.
   The active-recovered transactions are allowed only if we did not force to

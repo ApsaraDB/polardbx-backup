@@ -1,0 +1,51 @@
+--let $TEMP_FILE = polarx_rpc_fba
+
+--source include/polarx_rpc_preamble.inc
+--source include/polarx_rpc_create_user.inc
+## Test starts here
+--write_file $MYSQL_TMP_DIR/$TEMP_FILE.tmp
+
+## do sth with polarx_rpc msg
+
+## switch Session ID to 1
+-->switchsid 1
+
+## first start new session
+PolarXRPC.Session.NewSession {
+}
+## expect PolarXRPC.Ok
+-->recvok
+
+PolarXRPC.Sql.StmtExecute {
+  query_via_flashback_area: 0
+  stmt: "show variables like 'query_via_flashback_area'"
+  schema_name: "test"
+}
+
+## expect PolarXRPC.Sql.StmtExecuteOk
+-->recvresult
+
+PolarXRPC.Sql.StmtExecute {
+  query_via_flashback_area: 1
+  stmt: "show variables like 'query_via_flashback_area'"
+  schema_name: "test"
+}
+
+## expect PolarXRPC.Sql.StmtExecuteOk
+-->recvresult
+
+## close session.
+PolarXRPC.Session.Close {
+}
+## expect PolarXRPC.Ok
+-->recvok
+
+EOF
+
+--exec $POLARX_RPC_TEST -upolarx_root --password='' --file=$MYSQL_TMP_DIR/$TEMP_FILE.tmp 2>&1
+
+--echo ##############
+
+## Cleanup
+--remove_file $MYSQL_TMP_DIR/$TEMP_FILE.tmp
+--source include/polarx_rpc_drop_user.inc

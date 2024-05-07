@@ -290,3 +290,15 @@ static Sys_var_bool Sys_auto_savepoint("auto_savepoint",
                                        DEFAULT(FALSE), NO_MUTEX_GUARD,
                                        NOT_IN_BINLOG, ON_CHECK(0),
                                        ON_UPDATE(0));
+
+static Sys_var_bool Sys_query_via_flashback_area(
+    "query_via_flashback_area",
+    "Whether queries should be executed via the flashback area of the table "
+    "during a transaction. ",
+    SESSION_VAR(opt_query_via_flashback_area), CMD_LINE(OPT_ARG), DEFAULT(0),
+    NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(0));
+
+static Sys_var_bool Sys_opt_flashback_area(
+    "opt_flashback_area", "Enable flashback area when a new table is created. ",
+    SESSION_VAR(opt_flashback_area), CMD_LINE(OPT_ARG), DEFAULT(0),
+    NO_MUTEX_GUARD, IN_BINLOG, ON_CHECK(0), ON_UPDATE(0));

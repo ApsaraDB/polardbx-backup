@@ -390,6 +390,8 @@ struct trx_undo_t {
   @return true is the undo log segment is in prepared state, false otherwise.*/
   inline bool is_prepared() const;
 
+  inline bool is_2pc_purge() const;
+
   /*-----------------------------*/
   ulint id;        /*!< undo log slot number within the
                    rollback segment */
@@ -600,6 +602,9 @@ constexpr uint32_t TRX_UNDO_FLAG_XA_PREPARE_GTID = 0x04;
 /** Lizard: define txn undo log.
     true if undo log header is txn undo log header */
 constexpr uint32_t TRX_UNDO_FLAG_TXN = 0x80;
+/** Lizard: define txn/update undo log.
+ *  true if undo log need to be 2pc purge. */
+constexpr uint32_t TRX_UNDO_FLAG_2PC_PURGE = 0x40;
 /** true if the transaction is a table create, index create, or drop
  transaction: in recovery the transaction cannot be rolled back in the usual
  way: a 'rollback' rather means dropping the created or dropped table, if it
@@ -678,6 +683,42 @@ constexpr uint32_t TRX_UNDO_LOG_GTID_XA = TRX_UNDO_LOG_GTID_HDR_SIZE;
 to store both prepare and commit GTID. */
 constexpr uint32_t TRX_UNDO_LOG_GTID_XA_HDR_SIZE =
     TRX_UNDO_LOG_GTID_HDR_SIZE + TRX_UNDO_LOG_GTID_LEN;
+
+
+/**************************************************************************/
+// Lizard: Allocate Segment Tailer special for txn/update undo log segment.
+/**************************************************************************/
+/**
+ *   Page Format(txn/update undo page)
+ *      ---------------
+ *      Fil Header
+ *      ---------------
+ *      Segment Header
+ *      ---------------
+ *      .
+ *      .
+ *      .
+ *      ---------------
+ *              |
+ *              |
+ *      1B      | Flag
+ *      Segment Tailer
+ *      ---------------
+ *      Fil Tailer
+ *      ---------------
+ */
+constexpr uint32_t TRX_USEG_END = FIL_PAGE_DATA_END;
+/** flag of tailer*/
+constexpr uint32_t TRX_USEG_END_FLAG = 1;
+
+/** Flag 1: Whether exist 2pc purge log hdr in undo log segment. */
+constexpr uint32_t TRX_USEG_FLAG_EXIST_2PC_PURGE = 0x01;
+
+/** Mask TRX_USEG_END_FLAG */
+constexpr uint8_t TRX_USEG_END_FLAG_MASK = TRX_USEG_FLAG_EXIST_2PC_PURGE;
+
+/** Only bit_0 ~ bit_6 can be used. */
+static_assert(!(TRX_USEG_END_FLAG_MASK & 0x70));
 
 #include "trx0undo.ic"
 #endif

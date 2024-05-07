@@ -560,9 +560,12 @@ byte *trx_undo_rec_get_pars(
                               externally stored fild */
     undo_no_t *undo_no,       /*!< out: undo log record number */
     table_id_t *table_id,     /*!< out: table id */
+    bool *is_2pc_purge,       /*!< out: true if it's 2pc purge */
     type_cmpl_t &type_cmpl)   /*!< out: type compilation info */
 {
   const byte *ptr;
+
+  *is_2pc_purge = false;
 
   ptr = undo_rec + 2;
   ptr = type_cmpl.read(ptr);
@@ -578,7 +581,9 @@ byte *trx_undo_rec_get_pars(
     undo_rec_flags = mach_read_from_1(ptr);
     ptr++;
 
-    ut_a(undo_rec_flags == 0x00);
+    ut_a(undo_rec_flags == 0x00 ||
+         undo_rec_flags == TRX_UNDO_UPD_FLAG_2PC_PURGE);
+    *is_2pc_purge = (undo_rec_flags & TRX_UNDO_UPD_FLAG_2PC_PURGE);
   }
 
   *undo_no = mach_read_next_much_compressed(&ptr);
@@ -1166,6 +1171,8 @@ static ulint trx_undo_page_report_modify(
                           index updates */
     const dtuple_t *row,  /*!< in: clustered index row contains
                           virtual column info */
+    const trx_undo_t *undo, /*!< The corresponding undo */
+    bool is_2pc_purge,    /*!< in: true if is 2pc purge */
     mtr_t *mtr)           /*!< in: mtr */
 {
   DBUG_TRACE;
@@ -1184,6 +1191,7 @@ static ulint trx_undo_page_report_modify(
   bool ignore_prefix = false;
   byte ext_buf[REC_VERSION_56_MAX_INDEX_COL_LEN + BTR_EXTERN_FIELD_REF_SIZE];
   bool first_v_col = true;
+  uint8_t flag = 0x00;
 
   ut_a(index->is_clustered());
   ut_ad(rec_offs_validate(rec, index, offsets));
@@ -1237,8 +1245,14 @@ static ulint trx_undo_page_report_modify(
   /* Introducing a change in undo log format. */
   *type_cmpl_ptr |= TRX_UNDO_MODIFY_BLOB;
 
+  /* Lizard: Set if it's a 2pc purge for an undo log record. */
+  if (is_2pc_purge) {
+    ut_ad(undo->is_2pc_purge());
+    flag |= TRX_UNDO_UPD_FLAG_2PC_PURGE;
+  }
+
   /* Introducing a new 1-byte flag. */
-  *ptr++ = 0x00;
+  *ptr++ = flag;
 
   ptr += mach_u64_write_much_compressed(ptr, trx->undo_no);
 
@@ -2112,8 +2126,9 @@ static bool trx_undo_erase_page_end(
 
   first_free =
       mach_read_from_2(undo_page + TRX_UNDO_PAGE_HDR + TRX_UNDO_PAGE_FREE);
+  /** Lizard: Don't erase TRX_USEG_END */
   memset(undo_page + first_free, 0xff,
-         (UNIV_PAGE_SIZE - FIL_PAGE_DATA_END) - first_free);
+         (UNIV_PAGE_SIZE - FIL_PAGE_DATA_END - TRX_USEG_END) - first_free);
 
   mlog_write_initial_log_record(undo_page, MLOG_UNDO_ERASE_END, mtr);
   return (first_free != TRX_UNDO_PAGE_HDR + TRX_UNDO_PAGE_HDR_SIZE);
@@ -2166,6 +2181,7 @@ dberr_t trx_undo_report_row_operation(
   trx_undo_ptr_t *undo_ptr;
   mtr_t mtr;
   dberr_t err = DB_SUCCESS;
+  bool is_2pc_purge = false;
 #ifdef UNIV_DEBUG
   int loop_count = 0;
 #endif /* UNIV_DEBUG */
@@ -2203,9 +2219,12 @@ dberr_t trx_undo_report_row_operation(
     trx_assign_rseg_temp(trx);
   }
 
+  is_2pc_purge = index->table->is_2pc_purge;
+
   mtr_start(&mtr);
 
   if (is_temp_table) {
+    ut_ad(!is_2pc_purge);
     /* If object is temporary, disable REDO logging that
     is done to track changes done to UNDO logs. This is
     feasible given that temporary tables and temporary
@@ -2259,6 +2278,7 @@ dberr_t trx_undo_report_row_operation(
       }
 
       ut_ad(err == DB_SUCCESS);
+      lizard::trx_undo_set_2pc_purge_at_report(index, trx, undo, is_2pc_purge);
       break;
   }
 
@@ -2283,9 +2303,9 @@ dberr_t trx_undo_report_row_operation(
         break;
       default:
         ut_ad(op_type == TRX_UNDO_MODIFY_OP);
-        offset =
-            trx_undo_page_report_modify(undo_page, trx, index, rec, offsets,
-                                        update, cmpl_info, clust_entry, &mtr);
+        offset = trx_undo_page_report_modify(
+            undo_page, trx, index, rec, offsets, update, cmpl_info, clust_entry,
+            undo, is_2pc_purge, &mtr);
     }
 
     if (UNIV_UNLIKELY(offset == 0)) {
@@ -2430,9 +2450,7 @@ err_exit:
 
 /** Copies an undo record to heap.
  @param[in]     roll_ptr        roll pointer to record
- @param[in/out] txn_rec         txn_info of record, Liard;
-                                 the roll pointer: it points to an
-                                 undo log of this transaction
+ @param[in/out] txn_rec         txn_info of record
  @param[in]     heap            memory heap where copied
  @param[in]     is_temp         true if temporary, no-redo rseg.
  @param[in]     name            table name
@@ -2443,31 +2461,17 @@ err_exit:
  truncated and we cannot fetch the old version
  @retval false if the undo log record is available
  NOTE: the caller must have latches on the clustered index page. */
-[[nodiscard]] static bool trx_undo_get_undo_rec(roll_ptr_t roll_ptr,
-                                                txn_rec_t *txn_rec,
-                                                mem_heap_t *heap, bool is_temp,
-                                                const table_name_t &name,
-                                                trx_undo_rec_t **undo_rec,
-                                                bool is_as_of, mtr_t *txn_mtr) {
+[[nodiscard]] static bool trx_undo_get_undo_rec(
+    roll_ptr_t roll_ptr, txn_rec_t *txn_rec, mem_heap_t *heap, bool is_temp,
+    const table_name_t &name, trx_undo_rec_t **undo_rec, bool is_as_of,
+    bool flashback_area, mtr_t *txn_mtr) {
   bool missing_history = false;
-  txn_lookup_t txn_lookup;
 
   rw_lock_s_lock(&purge_sys->latch, UT_LOCATION_HERE);
 
   if (is_as_of) {
-    /** precheck, if the record has been cleanout, and the TXN has been purged,
-    no need to hold TXN page latch and undo page latch */
-    if (lizard::precheck_if_txn_is_purged(txn_rec)) {
-      /** Must be cleanout, so no need to lookup again */
-      ut_ad(!lizard::undo_ptr_is_active(txn_rec->undo_ptr));
-      missing_history = true;
-    } else {
-      /** precheck fail */
-      lizard::txn_rec_lock_state_by_lookup(txn_rec, &txn_lookup, txn_mtr);
-      missing_history = !lizard::txn_lookup_rollptr_is_valid(&txn_lookup);
-    }
-    DBUG_EXECUTE_IF("simulate_prev_image_purged_during_query",
-                    missing_history = true;);
+    missing_history = lizard::txn_undo_is_missing_history(
+        roll_ptr, txn_rec, flashback_area, txn_mtr);
   } else {
     lizard::txn_rec_real_state_by_misc(txn_rec);
     missing_history = purge_sys->vision.modifications_visible(txn_rec, name);
@@ -2509,6 +2513,7 @@ bool trx_undo_prev_version_build(
   ulint info_bits;
   ulint cmpl_info;
   bool dummy_extern;
+  bool is_2pc_purge = false;
   byte *buf;
 
   txn_info_t txn_info;
@@ -2517,6 +2522,7 @@ bool trx_undo_prev_version_build(
 
   mtr_t txn_mtr;
   bool is_as_of = vision ? vision->is_asof() : false;
+  bool flashback_area = vision ? vision->is_flashback_area() : false;
 
   ut_ad(!rw_lock_own(&purge_sys->latch, RW_LOCK_S));
   ut_ad(mtr_memo_contains_page(index_mtr, index_rec, MTR_MEMO_PAGE_S_FIX) ||
@@ -2546,8 +2552,8 @@ bool trx_undo_prev_version_build(
 
   mtr_start(&txn_mtr);
   if (trx_undo_get_undo_rec(roll_ptr, &txn_rec, heap, is_temp,
-                            index->table->name, &undo_rec,
-                            is_as_of, &txn_mtr)) {
+                            index->table->name, &undo_rec, is_as_of,
+                            flashback_area, &txn_mtr)) {
     if (v_status & TRX_UNDO_PREV_IN_PURGE) {
       /* We are fetching the record being purged */
       undo_rec = trx_undo_get_undo_rec_low(roll_ptr, heap, is_temp);
@@ -2562,7 +2568,7 @@ bool trx_undo_prev_version_build(
 
   type_cmpl_t type_cmpl;
   ptr = trx_undo_rec_get_pars(undo_rec, &type, &cmpl_info, &dummy_extern,
-                              &undo_no, &table_id, type_cmpl);
+                              &undo_no, &table_id, &is_2pc_purge, type_cmpl);
 
   if (table_id != index->table->id) {
     /* The table should have been rebuilt, but purge has

@@ -3,6 +3,7 @@
 # Forced the statement binlog format at .opt file
 
 -- source include/have_log_bin.inc
+--source include/skip_flashback_area.inc
 
 --disable_query_log
 CALL mtr.add_suppression("Unsafe statement written to the binary log using statement format since BINLOG_FORMAT = STATEMENT");

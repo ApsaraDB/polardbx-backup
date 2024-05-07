@@ -3,6 +3,7 @@
 # This test checks that the options are set correctly for all algorithms, to avoid such errors in the future.
 
 --source include/have_debug.inc
+--source include/skip_flashback_area.inc
 
 SET SESSION debug= '+d,skip_dd_table_access_check';
 

@@ -158,6 +158,11 @@ class Vision {
 
   bool is_asof() const { return m_snapshot_vision != nullptr; }
 
+  bool is_flashback_area() const {
+    return m_snapshot_vision != nullptr &&
+           m_snapshot_vision->get_flashback_area();
+  }
+
 #ifdef UNIV_DEBUG
   /**
     Less or equal compare

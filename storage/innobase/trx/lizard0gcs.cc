@@ -140,7 +140,7 @@ void CRecover::apply_gcn() {
 }
 
 commit_mark_t gcs_t::new_commit(trx_t *trx, mtr_t *mtr) {
-  commit_mark_t cmmt = COMMIT_MARK_NULL;
+  commit_mark_t cmmt;
 
   ut_ad(!recv_sys || !recv_sys->cn_recover->is_need_recovery());
 
@@ -528,5 +528,77 @@ scn_t gcs_load_min_safe_scn() {
 }
 
 void gcs_set_gcn_if_bigger(gcn_t gcn) { gcs->gcn.set_gcn_if_bigger(gcn); }
+
+template <unsigned long long POS>
+void Persisted_gcn<POS>::init() {
+  ut_ad(m_inited == false);
+  m_gcn = read();
+  m_inited = true;
+}
+
+template <unsigned long long POS>
+gcn_t Persisted_gcn<POS>::read() {
+  gcn_t gcn;
+  gcs_sysf_t *hdr;
+  mtr_t mtr;
+
+  mtr_start(&mtr);
+  hdr = gcs_sysf_get(&mtr);
+
+  gcn = mach_read_from_8(hdr + POS);
+
+  /** If lizard version is low, purge_gcn or erased_gcn has not been saved. */
+  if (gcn == 0) {
+    gcn = GCN_INITIAL;
+  } else {
+    ut_a(gcn >= GCN_INITIAL);
+  }
+
+  mtr_commit(&mtr);
+  return gcn;
+}
+
+template <unsigned long long POS>
+void Persisted_gcn<POS>::write(gcn_t gcn) {
+  ut_ad(m_inited == true);
+  gcs_sysf_t *hdr;
+  mtr_t mtr;
+
+  mtr_start(&mtr);
+  hdr = gcs_sysf_get(&mtr);
+  mlog_write_ull(hdr + POS, gcn, &mtr);
+  mtr_commit(&mtr);
+}
+
+template <unsigned long long POS>
+gcn_t Persisted_gcn<POS>::get() {
+  ut_ad(m_inited == true);
+  return m_gcn.load();
+}
+
+/**
+  Flush the bigger commit number to lizard tbs,
+  Only one single thread to persist.
+*/
+template <unsigned long long POS>
+void Persisted_gcn<POS>::flush(gcn_t gcn) {
+  ut_ad(m_inited == true);
+  if (gcn > m_gcn) {
+    m_gcn.store(gcn);
+    write(m_gcn);
+  }
+}
+
+template void Persisted_gcn<GCS_DATA_PURGE_GCN>::init();
+template void Persisted_gcn<GCS_DATA_PURGE_GCN>::flush(gcn_t gcn);
+template gcn_t Persisted_gcn<GCS_DATA_PURGE_GCN>::read();
+template gcn_t Persisted_gcn<GCS_DATA_PURGE_GCN>::get();
+template void Persisted_gcn<GCS_DATA_PURGE_GCN>::write(gcn_t gcn);
+
+template void Persisted_gcn<GCS_DATA_ERASE_GCN>::init();
+template void Persisted_gcn<GCS_DATA_ERASE_GCN>::flush(gcn_t gcn);
+template gcn_t Persisted_gcn<GCS_DATA_ERASE_GCN>::read();
+template gcn_t Persisted_gcn<GCS_DATA_ERASE_GCN>::get();
+template void Persisted_gcn<GCS_DATA_ERASE_GCN>::write(gcn_t gcn);
 
 }  // namespace lizard
