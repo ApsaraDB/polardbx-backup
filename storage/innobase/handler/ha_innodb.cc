@@ -23615,6 +23615,13 @@ static MYSQL_SYSVAR_BOOL(vision_use_commit_snapshot_debug,
                          "find a suitable up_limit_tid for general Vision on",
                          NULL, NULL, false);
 
+static MYSQL_SYSVAR_ULONG(
+    pfs_data_locks_max_locks_per_batch, pfs_data_locks_max_locks_per_batch,
+    PLUGIN_VAR_OPCMDARG,
+    "Maximum number of data locks that can be displayed for a single "
+    "batch in performance_schema.data_locks.",
+    NULL, NULL, 1024 * 1024, 1, 1024 * 1024 * 1024, 0);
+
 static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(api_trx_level),
     MYSQL_SYSVAR(api_bk_commit_interval),
@@ -23861,6 +23868,7 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(txn_cached_list_keep_size),
     MYSQL_SYSVAR(commit_snapshot_search_enabled),
     MYSQL_SYSVAR(vision_use_commit_snapshot_debug),
+    MYSQL_SYSVAR(pfs_data_locks_max_locks_per_batch),
     nullptr};
 
 mysql_declare_plugin(innobase){

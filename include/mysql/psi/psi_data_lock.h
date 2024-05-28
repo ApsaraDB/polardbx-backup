@@ -177,7 +177,7 @@ class PSI_server_data_lock_container {
                              size_t sub_partition_name_length) = 0;
 
   /** Add a row to table performance_schema.data_locks. */
-  virtual void add_lock_row(
+  virtual size_t add_lock_row(
       const char *engine, size_t engine_length, const char *engine_lock_id,
       size_t engine_lock_id_length, ulonglong transaction_id,
       ulonglong thread_id, ulonglong event_id, const char *table_schema,

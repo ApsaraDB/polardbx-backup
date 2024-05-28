@@ -158,6 +158,11 @@ enum scan_pass {
   DONE_SCANNING
 };
 
+/** The following variables are used to limit the output of the
+ * performance_schema.data_locks*/
+/** Maximum number of data locks that can be displayed for a single batch. */
+ulong pfs_data_locks_max_locks_per_batch = 1048576;
+
 /** State of a given scan.
 Scans are restartable, and done in multiple calls.
 Overall, the code scans separately:
@@ -175,7 +180,22 @@ class Innodb_trx_scan_state {
       : m_scan_pass(INIT_SCANNING),
         m_start_trx_id_range(0),
         m_end_trx_id_range(SCAN_RANGE),
-        m_next_trx_id_range(TRX_ID_MAX) {}
+        m_next_trx_id_range(TRX_ID_MAX),
+        m_snapshot_trx_id(TRX_ID_MAX) {
+    trx_sys_mutex_enter();
+    auto trx = UT_LIST_GET_FIRST(trx_sys->rw_trx_list);
+    auto len = UT_LIST_GET_LEN(trx_sys->mysql_trx_list);
+    trx_sys_mutex_exit();
+    if (trx != nullptr) {
+      /** Take the largest trx id (if exists) in the current trx sys as the
+       * snapshot of the scan. */
+      m_snapshot_trx_id = trx->id;
+    } else if (len == 0) {
+      /** If both rw_trx_list and mysql_trx_list are empty, the scan should be
+       * skipped. */
+      m_scan_pass = DONE_SCANNING;
+    }
+  }
 
   ~Innodb_trx_scan_state() = default;
 
@@ -189,8 +209,7 @@ class Innodb_trx_scan_state {
   */
   void prepare_next_scan() {
     if (m_next_trx_id_range != TRX_ID_MAX) {
-      m_start_trx_id_range =
-          m_next_trx_id_range - (m_next_trx_id_range % SCAN_RANGE);
+      m_start_trx_id_range = m_next_trx_id_range;
       m_end_trx_id_range = m_start_trx_id_range + SCAN_RANGE;
       m_next_trx_id_range = TRX_ID_MAX;
     } else {
@@ -206,6 +225,8 @@ class Innodb_trx_scan_state {
           m_start_trx_id_range = 0;
           m_end_trx_id_range = SCAN_RANGE;
           m_next_trx_id_range = TRX_ID_MAX;
+          /** Reset snapshot for RO trx. */
+          m_snapshot_trx_id = TRX_ID_MAX;
           break;
         case SCANNING_MYSQL_TRX_LIST:
           m_scan_pass = DONE_SCANNING;
@@ -221,16 +242,33 @@ class Innodb_trx_scan_state {
   /** Check if a transaction belongs to the current range.
   As a side effect, compute the next range.
   @param[in] trx_id     Transaction id to evaluate
+  @param[in] found      Number of data locks found in the current range.
   @return True if transaction is within range.
   */
-  bool trx_id_in_range(trx_id_t trx_id) {
+  bool trx_id_in_range(trx_id_t trx_id, size_t found) {
     ut_ad(trx_id < TRX_ID_MAX);
 
     if ((m_start_trx_id_range <= trx_id) && (trx_id < m_end_trx_id_range)) {
+      if (found >= pfs_data_locks_max_locks_per_batch) {
+        /** Transition to the next range in advance to prevent excessive memory
+         * consumption. */
+        if (trx_id < m_next_trx_id_range) {
+          m_next_trx_id_range = trx_id;
+        }
+
+        return false;
+      }
       return true;
     }
 
-    if ((m_end_trx_id_range <= trx_id) && (trx_id < m_next_trx_id_range)) {
+    if (trx_id > m_snapshot_trx_id) {
+      /** Check if a transaction belongs to the current inspection. The
+       * transaction with a larger trx id than m_snapshot_trx_id will be
+       * ignored. As a side effect, transition to the next state.*/
+      m_next_trx_id_range = TRX_ID_MAX;
+    } else if ((m_end_trx_id_range <= trx_id) &&
+               (trx_id < m_next_trx_id_range)) {
+      /** Transition to the next range.*/
       m_next_trx_id_range = trx_id;
     }
 
@@ -246,6 +284,9 @@ class Innodb_trx_scan_state {
   trx_id_t m_end_trx_id_range;
   /** Next range. */
   trx_id_t m_next_trx_id_range;
+  /** The snapshot taken when the state is initiated. Any transaction with a
+   * larger trx id will be ignored during inspection. */
+  trx_id_t m_snapshot_trx_id;
 };
 
 /** Inspect data locks for the innodb storage engine. */
@@ -674,7 +715,7 @@ size_t Innodb_data_lock_iterator::scan_trx_list(
 
     trx_id = trx_get_id_for_print(trx);
 
-    if (!m_scan_state.trx_id_in_range(trx_id)) {
+    if (!m_scan_state.trx_id_in_range(trx_id, found)) {
       continue;
     }
 
@@ -729,6 +770,7 @@ size_t Innodb_data_lock_iterator::scan_trx(
   ulint heap_no;
   int record_type;
   lock_t *wait_lock;
+  size_t container_size;
   ut_ad(locksys::owns_exclusive_global_latch());
   wait_lock = trx->lock.wait_lock;
 
@@ -780,7 +822,7 @@ size_t Innodb_data_lock_iterator::scan_trx(
         engine_lock_id_length = strlen(engine_lock_id);
 
         if (container->accept_lock_id(engine_lock_id, engine_lock_id_length)) {
-          container->add_lock_row(
+          container_size = container->add_lock_row(
               g_engine, g_engine_length, engine_lock_id, engine_lock_id_length,
               trx_id, thread_id, event_id, table_schema, table_schema_length,
               table_name, table_name_length, partition_name,
@@ -788,6 +830,9 @@ size_t Innodb_data_lock_iterator::scan_trx(
               subpartition_name_length, nullptr, 0, identity, lock_mode_str,
               lock_type_str, lock_status_str, nullptr);
           found++;
+          if (container_size >= pfs_data_locks_max_locks_per_batch) {
+            goto func_exit;
+          }
         }
         break;
       case LOCK_REC:
@@ -810,7 +855,7 @@ size_t Innodb_data_lock_iterator::scan_trx(
                 lock_data_str = nullptr;
               }
 
-              container->add_lock_row(
+              container_size = container->add_lock_row(
                   g_engine, g_engine_length, engine_lock_id,
                   engine_lock_id_length, trx_id, thread_id, event_id,
                   table_schema, table_schema_length, table_name,
@@ -819,6 +864,9 @@ size_t Innodb_data_lock_iterator::scan_trx(
                   index_name_length, identity, lock_mode_str, lock_type_str,
                   lock_status_str, lock_data_str);
               found++;
+              if (container_size >= pfs_data_locks_max_locks_per_batch) {
+                goto func_exit;
+              }
             }
           }
 
@@ -830,6 +878,12 @@ size_t Innodb_data_lock_iterator::scan_trx(
     }
   }
 
+func_exit:
+  if (found >= pfs_data_locks_max_locks_per_batch) {
+    ib::warn() << "The transaction " << trx->id
+               << " holds too many locks which exceeds the configured "
+                  "pfs_data_locks_max_locks_per_batch.";
+  }
   return found;
 }
 
@@ -953,7 +1007,7 @@ size_t Innodb_data_lock_wait_iterator::scan_trx_list(
 
     trx_id = trx_get_id_for_print(trx);
 
-    if (!m_scan_state.trx_id_in_range(trx_id)) {
+    if (!m_scan_state.trx_id_in_range(trx_id, found)) {
       continue;
     }
 

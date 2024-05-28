@@ -258,7 +258,7 @@ bool PFS_data_lock_container::accept_object(
   return true;
 }
 
-void PFS_data_lock_container::add_lock_row(
+size_t PFS_data_lock_container::add_lock_row(
     const char *engine, size_t engine_length [[maybe_unused]],
     const char *engine_lock_id, size_t engine_lock_id_length,
     ulonglong transaction_id, ulonglong thread_id, ulonglong event_id,
@@ -317,6 +317,8 @@ void PFS_data_lock_container::add_lock_row(
   row.m_lock_data = lock_data;
 
   m_rows.push_back(row);
+
+  return m_rows.size();
 }
 
 void PFS_data_lock_container::clear() {

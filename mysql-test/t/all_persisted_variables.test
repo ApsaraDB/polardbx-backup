@@ -44,6 +44,7 @@ let $total_global_vars=`SELECT COUNT(*) FROM performance_schema.global_variables
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 let $total_persistent_vars=492;
 =======
 <<<<<<< HEAD
@@ -62,6 +63,9 @@ let $total_persistent_vars=496;
 =======
 let $total_persistent_vars=608;
 >>>>>>> e6c94a79b94 ([feature] txn retention)
+=======
+let $total_persistent_vars=609;
+>>>>>>> a4de9f6a198 ([fix] Add variables to limit pfs.data_locks output)
 
 --echo ***************************************************************
 --echo * 0. Verify that variables present in performance_schema.global

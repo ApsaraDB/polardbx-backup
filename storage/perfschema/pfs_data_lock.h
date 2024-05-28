@@ -629,18 +629,18 @@ class PFS_data_lock_container : public PSI_server_data_lock_container {
                      const char *sub_partition_name,
                      size_t sub_partition_name_length) override;
 
-  void add_lock_row(const char *engine, size_t engine_length,
-                    const char *engine_lock_id, size_t engine_lock_id_length,
-                    ulonglong transaction_id, ulonglong thread_id,
-                    ulonglong event_id, const char *table_schema,
-                    size_t table_schema_length, const char *table_name,
-                    size_t table_name_length, const char *partition_name,
-                    size_t partition_name_length,
-                    const char *sub_partition_name,
-                    size_t sub_partition_name_length, const char *index_name,
-                    size_t index_name_length, const void *identity,
-                    const char *lock_mode, const char *lock_type,
-                    const char *lock_status, const char *lock_data) override;
+  size_t add_lock_row(const char *engine, size_t engine_length,
+                      const char *engine_lock_id, size_t engine_lock_id_length,
+                      ulonglong transaction_id, ulonglong thread_id,
+                      ulonglong event_id, const char *table_schema,
+                      size_t table_schema_length, const char *table_name,
+                      size_t table_name_length, const char *partition_name,
+                      size_t partition_name_length,
+                      const char *sub_partition_name,
+                      size_t sub_partition_name_length, const char *index_name,
+                      size_t index_name_length, const void *identity,
+                      const char *lock_mode, const char *lock_type,
+                      const char *lock_status, const char *lock_data) override;
 
   /**
     Clear the container.
