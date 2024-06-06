@@ -47,7 +47,7 @@ extern trx_undo_rec_t trx_purge_ignore_rec;
 extern trx_undo_rec_t trx_purge_blocked_rec;
 
 extern que_t *trx_purge_graph_build(trx_t *trx, ulint n_purge_threads,
-                                    lizard::e_2pc_purge_phase phase);
+                                    lizard::e_2pp_phase phase);
 trx_undo_rec_t *trx_undo_get_next_rec_from_next_page(
     space_id_t space, const page_size_t &page_size, const page_t *undo_page,
     page_no_t page_no, ulint offset, ulint mode, mtr_t *mtr);
@@ -57,19 +57,6 @@ namespace lizard {
 
 /** The global data structure coordinating a purge */
 trx_erase_t *erase_sys = nullptr;
-
-/** Reset erase sys current log header context after erased all undo log records
-of current log header, so that prepare to load the next log header. */
-static void trx_erase_reset_cur_log_context() {
-  erase_sys->rseg = nullptr;
-  erase_sys->offset = 0;
-  erase_sys->page_no = FIL_NULL;
-  erase_sys->hdr_page_no = FIL_NULL;
-  erase_sys->hdr_offset = 0;
-  erase_sys->txn_addr = {};
-  erase_sys->next_stored = false;
-  /** NOTES: Do not reset iter because iter should not be fallback. */
-}
 
 void trx_erase_sys_mem_create() {
   erase_sys = static_cast<trx_erase_t *>(
@@ -81,6 +68,8 @@ void trx_erase_sys_mem_create() {
 #ifdef UNIV_DEBUG
   new (&erase_sys->done) purge_iter_t;
 #endif /* UNIV_DEBUG */
+
+  mutex_create(LATCH_ID_ERASE_SYS_PQ, &erase_sys->pq_mutex);
 
   erase_sys->heap = mem_heap_create(8 * 1024, UT_LOCATION_HERE);
 }
@@ -96,6 +85,13 @@ void trx_erase_sys_close() {
 
   call_destructor(&erase_sys->erased_gcn);
 
+  mutex_free(&erase_sys->pq_mutex);
+
+  if (erase_sys->erase_heap != nullptr) {
+    ut::delete_(erase_sys->erase_heap);
+    erase_sys->erase_heap = nullptr;
+  }
+
   ut::free(erase_sys);
 
   erase_sys = nullptr;
@@ -105,8 +101,10 @@ static void trx_erase_set_erased_scn(scn_t txn_scn) {
   erase_sys->erased_scn.store(txn_scn);
 }
 
+#ifdef UNIV_DEBUG
 static trx_rseg_t *trx_erase_find_oldest_log(fil_addr_t &log_addr,
                                              commit_mark_t &cmmt);
+#endif /* UNIV_DEBUG */
 
 /**
   Load erased_scn
@@ -114,25 +112,43 @@ static trx_rseg_t *trx_erase_find_oldest_log(fil_addr_t &log_addr,
   @retval              a valid scn if found, or purge_sys->purged_scn.
 */
 static scn_t trx_erase_reload_erased_scn() {
-  fil_addr_t addr;
-  commit_mark_t cmmt;
-  trx_rseg_t *found_rseg = nullptr;
-  scn_t purged_scn = SCN_NULL;
-  ut_ad(purge_sys);
-
-  purged_scn = purge_sys->purged_scn;
-  ut_ad(purged_scn != SCN_NULL);
-
-  if ((found_rseg = trx_erase_find_oldest_log(addr, cmmt)) != nullptr) {
-    ut_ad(cmmt.scn != SCN_NULL);
-    return cmmt.scn;
+  /** If undo log scan is forbidden, erase_sys->erased_scn can't get a valid
+  value */
+  if (srv_force_recovery >= SRV_FORCE_NO_UNDO_LOG_SCAN) {
+    return ERASED_SCN_INVALID;
   }
-  /** If not found any sp log, take purged scn as erased scn. */
-  return purged_scn;
+
+  scn_t min_erase_scn;
+
+  ut_ad(purge_sys);
+  ut_ad(erase_sys);
+
+  if (erase_sys->erase_heap->empty()) {
+    /** If not found any sp log, take purged scn as erased scn. */
+    min_erase_scn = purge_sys->purged_scn;
+  } else {
+    min_erase_scn = erase_sys->erase_heap->top().get_scn();
+    ut_ad(min_erase_scn < purge_sys->purged_scn);
+#ifdef UNIV_DEBUG
+    fil_addr_t addr;
+    commit_mark_t cmmt;
+    ut_ad(trx_erase_find_oldest_log(addr, cmmt) != nullptr);
+    ut_ad(cmmt.scn == min_erase_scn);
+#endif /* UNIV_DEBUG */
+  }
+
+  ut_ad(min_erase_scn != SCN_NULL);
+
+  return min_erase_scn;
 }
 
-void trx_erase_sys_initialize(uint32_t n_erase_threads) {
+void trx_erase_sys_initialize(uint32_t n_erase_threads,
+                              lizard::erase_heap_t *erase_heap) {
   ut_a(n_erase_threads > 0);
+  ut_a(erase_heap);
+
+  /* Take ownership of erase_heap, we are responsible for freeing it. */
+  erase_sys->erase_heap = erase_heap;
 
   ut_a(purge_sys->query != nullptr);
   erase_sys->query = purge_sys->query;
@@ -143,7 +159,15 @@ void trx_erase_sys_initialize(uint32_t n_erase_threads) {
 
   erase_sys->erased_gcn.init();
 
-  trx_erase_reset_cur_log_context();
+#ifdef UNIV_DEBUG
+  rw_lock_x_lock(&purge_sys->latch, UT_LOCATION_HERE);
+  erase_sys->oldest_vision = purge_sys->limit;
+  rw_lock_x_unlock(&purge_sys->latch);
+#endif /* UNIV_DEBUG */
+
+  ut_a(erase_sys->rseg == nullptr);
+  ut_a(erase_sys->next_stored == false);
+  ut_a(erase_sys->offset == 0);
 }
 
 static void trx_erase_start_sp() {
@@ -188,7 +212,7 @@ static inline void trx_erase_remove_log_hdr_sp(trx_rsegf_t *rseg_hdr,
 @return undo log record, the page latched, NULL if none */
 static trx_undo_rec_t *trx_erase_undo_get_first_rec(
     trx_id_t *modifier_trx_id, bool *del_marks, slot_addr_t *txn_addr,
-    bool *log_2pc_purge, space_id_t space, const page_size_t &page_size,
+    bool *is_2pp_log, space_id_t space, const page_size_t &page_size,
     page_no_t hdr_page_no, ulint hdr_offset, mtr_t *mtr) {
   page_t *undo_page;
   trx_undo_rec_t *rec;
@@ -205,7 +229,7 @@ static trx_undo_rec_t *trx_erase_undo_get_first_rec(
   *del_marks =
       mtr_read_ulint(undo_header + TRX_UNDO_DEL_MARKS, MLOG_2BYTES, mtr);
 
-  *log_2pc_purge = trx_undo_log_is_2pc_purge(undo_header, mtr);
+  *is_2pp_log = trx_undo_log_is_2pp(undo_header, mtr);
 
   trx_undo_hdr_read_slot(undo_header, txn_addr, mtr);
 
@@ -231,7 +255,8 @@ static void trx_erase_read_undo_rec(const page_size_t &page_size) {
   trx_undo_rec_t *undo_rec = nullptr;
   bool del_marks = false;
   slot_addr_t txn_addr;
-  bool log_2pc_purge;
+  txn_cursor_t txn_cursor;
+  bool is_2pp_log;
 
   ut_a(erase_sys->hdr_offset != 0);
   ut_a(erase_sys->hdr_page_no != FIL_NULL);
@@ -245,11 +270,17 @@ static void trx_erase_read_undo_rec(const page_size_t &page_size) {
    * taken. Because this update undo must have been purged, that is, it will no
    * longer be used by other threads to take multiple pages at the same time. */
   undo_rec = trx_erase_undo_get_first_rec(
-      &modifier_trx_id, &del_marks, &txn_addr, &log_2pc_purge,
+      &modifier_trx_id, &del_marks, &txn_addr, &is_2pp_log,
       erase_sys->rseg->space_id, page_size, erase_sys->hdr_page_no,
       erase_sys->hdr_offset, &mtr);
 
-  if (del_marks && log_2pc_purge) {
+  /** Store txn cursor. */
+  txn_cursor.trx_id = modifier_trx_id;
+  txn_cursor.txn_addr = txn_addr;
+
+  ut_ad(erase_sys->rseg->last_erase_del_marks == del_marks);
+
+  if (del_marks && is_2pp_log) {
     if (undo_rec != nullptr) {
       offset = page_offset(undo_rec);
       undo_no = trx_undo_rec_get_undo_no(undo_rec);
@@ -265,16 +296,14 @@ static void trx_erase_read_undo_rec(const page_size_t &page_size) {
     offset = 0;
     undo_no = 0;
     undo_rseg_space = SPACE_UNKNOWN;
-    /** Can not reset modifier_trx_id because txn_undo_set_state_at_erase must
-    check the modifier_trx_id. */
-    /* modifier_trx_id = 0; */
+    modifier_trx_id = 0;
   }
 
   mtr_commit(&mtr);
 
   erase_sys->offset = offset;
   erase_sys->page_no = page_no;
-  erase_sys->txn_addr = txn_addr;
+  erase_sys->txn_cursor = txn_cursor;
   erase_sys->iter.undo_no = undo_no;
   erase_sys->iter.modifier_trx_id = modifier_trx_id;
   erase_sys->iter.undo_rseg_space = undo_rseg_space;
@@ -326,7 +355,7 @@ commit_mark_t trx_erase_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
 
   log_hdr = undo_page + addr.boffset;
 
-  ut_a(trx_useg_is_2pc_purge(undo_page, rseg->page_size, &mtr));
+  ut_a(trx_useg_is_2pp(undo_page, rseg->page_size, &mtr));
 
   cmmt = lizard::trx_undo_hdr_read_cmmt(log_hdr, &mtr);
 
@@ -335,6 +364,7 @@ commit_mark_t trx_erase_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
   return cmmt;
 }
 
+#ifdef UNIV_DEBUG
 /** Find oldest log header in sp lists by polling.
  *
  * @param[out]		rseg
@@ -372,27 +402,49 @@ static trx_rseg_t *trx_erase_find_oldest_log(fil_addr_t &log_addr,
   mutex_exit(&undo::ddl_mutex);
   return rseg;
 }
+#endif /* UNIV_DEBUG */
 
-/** Find oldest log header in sp lists by polling. */
-static void trx_erase_sys_set_next_by_poll() {
-  fil_addr_t hdr_addr;
-  commit_mark_t cmmt;
-  trx_rseg_t *found_rseg = nullptr;
-  ut_a(erase_sys->rseg == nullptr);
+/** Find next log header in sp lists. */
+static void trx_erase_sys_set_next() {
+  mutex_enter(&erase_sys->pq_mutex);
+  lizard_erased_scn_validation();
 
-  if ((found_rseg = trx_erase_find_oldest_log(hdr_addr, cmmt)) != nullptr) {
-    /* Can never fallback iter. */
-    ut_a(erase_sys->iter.ommt.scn < cmmt.scn);
-    ut_a(found_rseg != nullptr);
-    ut_a(!hdr_addr.is_null());
+#ifdef UNIV_DEBUG
+  scn_t top_scn = 0;
+#endif /* UNIV_DEBUG */
+  trx_rseg_t *top_rseg = nullptr;
 
-    erase_sys->iter.ommt = cmmt;
-    erase_sys->iter.undo_no = 0;
+  if (!erase_sys->erase_heap->empty()) {
+    const UpdateUndoRseg top = erase_sys->erase_heap->top();
+    top_rseg = top.get_rseg();
 
-    erase_sys->rseg = found_rseg;
-    erase_sys->hdr_page_no = hdr_addr.page;
-    erase_sys->hdr_offset = hdr_addr.boffset;
+#ifdef UNIV_DEBUG
+    top_scn = top.get_scn();
+    ut_ad(top_scn < erase_sys->oldest_vision.ommt.scn);
+#endif /* UNIV_DEBUG */
+
+    erase_sys->erase_heap->pop();
+
+    mutex_exit(&erase_sys->pq_mutex);
+  } else {
+    mutex_exit(&erase_sys->pq_mutex);
+
+    erase_sys->rseg = nullptr;
+    return;
   }
+
+  ut_a(top_rseg != nullptr);
+  erase_sys->rseg = top_rseg;
+
+  erase_sys->rseg->latch();
+
+  ut_a(erase_sys->rseg->last_erase_page_no != FIL_NULL);
+  ut_ad(erase_sys->rseg->last_erase_ommt.scn == top_scn);
+  erase_sys->iter.ommt = erase_sys->rseg->last_erase_ommt;
+  erase_sys->hdr_offset = erase_sys->rseg->last_erase_offset;
+  erase_sys->hdr_page_no = erase_sys->rseg->last_erase_page_no;
+
+  erase_sys->rseg->unlatch();
 }
 
 /** Chooses the next undo log to erase and updates the info in erase_sys. This
@@ -401,13 +453,12 @@ static void trx_erase_sys_set_next_by_poll() {
  has handled the whole undo log for a transaction.
  purge has handled the whole undo log for a transaction. */
 static void trx_erase_choose_next_log() {
-  ut_a(erase_sys->rseg == nullptr);
+  ut_ad(erase_sys->next_stored == false);
 
-  trx_erase_sys_set_next_by_poll();
+  trx_erase_sys_set_next();
 
-  if (erase_sys->rseg == nullptr) {
-    /** TODO: might not yield  <14-05-24, zanye.zjy> */
-    std::this_thread::yield();
+  if (erase_sys->rseg != nullptr) {
+    trx_erase_read_undo_rec(erase_sys->rseg->page_size);
   }
 }
 
@@ -416,12 +467,78 @@ static void trx_erase_rseg_get_next_sp_log(
     ulint *n_pages_handled) /*!< in/out: number of UNDO pages
                             handled */
 {
+  mtr_t mtr;
+  commit_mark_t cmmt;
+
+  rseg->latch();
+
+  ut_a(rseg->last_erase_page_no != FIL_NULL);
+
+  erase_sys->iter.undo_no = 0;
+  erase_sys->iter.undo_rseg_space = SPACE_UNKNOWN;
+  erase_sys->next_stored = false;
+  erase_sys->iter.ommt = rseg->last_erase_ommt;
+
+  mtr_start(&mtr);
+
+  auto undo_page = trx_undo_page_get_s_latched(
+      page_id_t(rseg->space_id, rseg->last_erase_page_no), rseg->page_size,
+      &mtr);
+
+  auto log_hdr = undo_page + rseg->last_erase_offset;
+
   /* Increase the purge page count by one for every handled log */
 
   (*n_pages_handled)++;
 
-  /** TODO: Do nothing but set next_stored for now <10-05-24, zanye.zjy> */
-  trx_erase_reset_cur_log_context();
+  auto prev_log_addr = trx_erase_get_log_from_sp(
+      flst_get_prev_addr(log_hdr + TRX_UNDO_HISTORY_NODE, &mtr));
+
+  if (prev_log_addr.page == FIL_NULL) {
+    /* No logs left in the sp list */
+
+    rseg->last_erase_page_no = FIL_NULL;
+
+    mtr_commit(&mtr);
+    rseg->unlatch();
+    return;
+  }
+
+  mtr_commit(&mtr);
+  rseg->unlatch();
+
+  /* Read the trx number and del marks from the previous log header */
+  mtr_start(&mtr);
+
+  log_hdr =
+      trx_undo_page_get_s_latched(page_id_t(rseg->space_id, prev_log_addr.page),
+                                  rseg->page_size, &mtr) +
+      prev_log_addr.boffset;
+
+  auto del_marks = mach_read_from_2(log_hdr + TRX_UNDO_DEL_MARKS);
+
+  cmmt = lizard::trx_undo_hdr_read_cmmt(log_hdr, &mtr);
+
+  mtr_commit(&mtr);
+
+  rseg->latch();
+
+  rseg->last_erase_page_no = prev_log_addr.page;
+  rseg->last_erase_offset = prev_log_addr.boffset;
+  rseg->last_erase_del_marks = del_marks;
+  rseg->last_erase_ommt = cmmt;
+
+  lizard::UpdateUndoRseg elem(cmmt.scn, rseg);
+
+  mutex_enter(&erase_sys->pq_mutex);
+
+  erase_sys->erase_heap->push(std::move(elem));
+
+  lizard_erased_scn_validation();
+
+  mutex_exit(&erase_sys->pq_mutex);
+
+  rseg->unlatch();
 }
 
 /** Gets the next record to erase and updates the info in the purge system.
@@ -429,8 +546,6 @@ static void trx_erase_rseg_get_next_sp_log(
 static trx_undo_rec_t *trx_erase_get_next_rec(
     ulint *n_pages_handled, /*!< in/out: number of UNDO pages
                             handled */
-    bool *next_sp_log,     /*!< out: hould truncate current sp log so that next
-                                     sp log can be choosen. */
     mem_heap_t *heap)       /*!< in: memory heap where copied */
 {
   trx_undo_rec_t *rec;
@@ -457,7 +572,7 @@ static trx_undo_rec_t *trx_erase_get_next_rec(
 
     trx_erase_rseg_get_next_sp_log(erase_sys->rseg, n_pages_handled);
 
-    *next_sp_log = true;
+    trx_erase_choose_next_log();
 
     return (&trx_purge_ignore_rec);
   }
@@ -513,8 +628,7 @@ static trx_undo_rec_t *trx_erase_get_next_rec(
 
     trx_erase_rseg_get_next_sp_log(erase_sys->rseg, n_pages_handled);
 
-    /** Only purge a transaction logs for now. */
-    *next_sp_log = true;
+    trx_erase_choose_next_log();
 
     mtr_start(&mtr);
 
@@ -553,48 +667,31 @@ trx_undo_rec_t *trx_erase_fetch_next_rec(
     roll_ptr_t *roll_ptr,   /*!< out: roll pointer to undo record */
     ulint *n_pages_handled, /*!< in/out: number of UNDO log pages
                             handled */
-    bool *next_sp_log,      /*!< out: hould truncate current sp log so that next
-                                      sp log can be choosen. */
     mem_heap_t *heap)       /*!< in: memory heap where copied */
 {
   /** 1. Try to choose next sp log, erase_sys->rseg will point at the RSEG if
   having. */
-  /** TODO: For most case, cost is unnecessary. <15-05-24, zanye.zjy> */
-  if (erase_sys->rseg == nullptr) {
+  if (!erase_sys->next_stored) {
     trx_erase_choose_next_log();
 
-    if (erase_sys->rseg == nullptr) {
+    if (!erase_sys->next_stored) {
       DBUG_PRINT("ib_semi_purge", ("no logs left in the semi purge list"));
       return nullptr;
     }
-
-    /**
-      Already point at the rseg and the undo log header:
-      erase_sys->rseg
-      erase_sys->iter.ommt
-      erase_sys->hdr_page_no
-      erase_sys->hdr_offset
-    */
   }
 
   ut_a(erase_sys->rseg != nullptr);
+  ut_ad(erase_sys->next_stored);
 
   /** 2. Check if the log header can be erased. */
-  if (!erase_sys->next_stored) {
-    if (txn_retention_satisfied(erase_sys->iter.ommt.us)) {
-      trx_erase_read_undo_rec(erase_sys->rseg->page_size);
-
-      erase_sys->push_erased(erase_sys->iter.ommt);
-      /** Call after **trx_erase_read_undo_rec** */
-      txn_undo_set_state_at_erase(
-          erase_sys->txn_addr, erase_sys->iter.modifier_trx_id,
-          erase_sys->iter.ommt.scn, erase_sys->rseg->page_size);
-    } else {
-      return &trx_purge_blocked_rec;
-    }
+  if (txn_retention_satisfied(erase_sys->iter.ommt.us)) {
+    erase_sys->push_erased(erase_sys->iter.ommt);
+    /** Call after **trx_erase_read_undo_rec** */
+    txn_undo_set_state_at_erase(erase_sys->txn_cursor, erase_sys->iter.ommt.scn,
+                                erase_sys->rseg->page_size);
+  } else {
+    return &trx_purge_blocked_rec;
   }
-
-  ut_a(erase_sys->next_stored);
 
   *roll_ptr = trx_undo_build_roll_ptr(false, erase_sys->rseg->space_id,
                                       erase_sys->page_no, erase_sys->offset);
@@ -604,9 +701,9 @@ trx_undo_rec_t *trx_erase_fetch_next_rec(
   /** 3. Fetch next undo log record. */
 
   /* The following call will advance the stored values of the
-  purge iterator. */
+  erase iterator. */
 
-  return (trx_erase_get_next_rec(n_pages_handled, next_sp_log, heap));
+  return (trx_erase_get_next_rec(n_pages_handled, heap));
 }
 
 /** Frees a rollback segment which is in the semi-purge list.
@@ -734,10 +831,14 @@ loop:
   log_hdr = undo_page + hdr_addr.boffset;
 
   undo_trx_scn = lizard::trx_undo_hdr_read_cmmt(log_hdr, &mtr).scn;
-  /** TODO: Fix it <15-05-24, zanye.zjy> */
-  /* if (undo_trx_scn >= limit->scn) { */
-  if (undo_trx_scn > limit->ommt.scn) {
-    /** TODO: trx_undo_truncate_start */
+
+  if (undo_trx_scn >= limit->ommt.scn) {
+
+    if (undo_trx_scn == limit->ommt.scn &&
+        rseg->space_id == limit->undo_rseg_space) {
+      trx_undo_truncate_start(rseg, hdr_addr.page, hdr_addr.boffset,
+                              limit->undo_no, false);
+    }
 
     rseg->unlatch();
     mtr_commit(&mtr);
@@ -753,7 +854,7 @@ loop:
   type = mach_read_from_2(page_hdr + TRX_UNDO_PAGE_TYPE);
 
   ut_a(type == TRX_UNDO_UPDATE);
-  ut_ad(lizard::trx_useg_is_2pc_purge(undo_page, rseg->page_size, &mtr));
+  ut_ad(lizard::trx_useg_is_2pp(undo_page, rseg->page_size, &mtr));
 
   last_log = mach_read_from_2(seg_hdr + TRX_UNDO_STATE) == TRX_UNDO_TO_PURGE &&
              mach_read_from_2(log_hdr + TRX_UNDO_NEXT_LOG) == 0;
@@ -874,13 +975,20 @@ ulint trx_erase(ulint n_purge_threads, /*!< in: number of purge tasks
 {
   que_thr_t *thr = nullptr;
   ulint n_pages_handled;
-  bool next_sp_log;
+
+  /* The number of tasks submitted should be completed. */
+  ut_a(erase_sys->n_submitted == erase_sys->n_completed);
+
+#ifdef UNIV_DEBUG
+  rw_lock_x_lock(&purge_sys->latch, UT_LOCATION_HERE);
+  erase_sys->oldest_vision = purge_sys->limit;
+  rw_lock_x_unlock(&purge_sys->latch);
+#endif /* UNIV_DEBUG */
 
   trx_erase_start_sp();
 
-  /* Fetch the UNDO recs that need to be purged. */
-  n_pages_handled =
-      trx_erase_attach_undo_recs(n_purge_threads, batch_size, &next_sp_log);
+  /* Fetch the UNDO recs that need to be erased. */
+  n_pages_handled = trx_erase_attach_undo_recs(n_purge_threads, batch_size);
 
   /* Do we do an asynchronous purge or not ? */
   if (n_purge_threads > 1) {
@@ -917,6 +1025,16 @@ ulint trx_erase(ulint n_purge_threads, /*!< in: number of purge tasks
     }
   }
 
+  ut_a(erase_sys->n_submitted == erase_sys->n_completed);
+
+#ifdef UNIV_DEBUG
+  if (erase_sys->limit.ommt.scn == 0) {
+    erase_sys->done = erase_sys->iter;
+  } else {
+    erase_sys->done = erase_sys->limit;
+  }
+#endif /* UNIV_DEBUG */
+
   for (thr = UT_LIST_GET_FIRST(erase_sys->query->thrs); thr != nullptr;
        thr = UT_LIST_GET_NEXT(thrs, thr)) {
     purge_node_t *node = static_cast<purge_node_t *>(thr->child);
@@ -926,7 +1044,7 @@ ulint trx_erase(ulint n_purge_threads, /*!< in: number of purge tasks
   ut_a(!srv_upgrade_old_undo_found);
   /** trx_erase_truncate will always truncate current sp log, so the current
   sp log must be all erased, which is specified by next_sp_log == true */
-  if (truncate && next_sp_log) {
+  if (truncate) {
     trx_erase_truncate();
   }
 
@@ -935,23 +1053,6 @@ ulint trx_erase(ulint n_purge_threads, /*!< in: number of purge tasks
   /* MONITOR_INC_VALUE(MONITOR_PURGE_N_PAGE_HANDLED, n_pages_handled); */
 
   return (n_pages_handled);
-}
-
-bool trx_erase_sp_list_is_empty(trx_rseg_t *rseg) {
-  mtr_t mtr;
-  trx_rsegf_t *rseg_hdr;
-
-  mtr_start(&mtr);
-
-  rseg_hdr =
-      trx_rsegf_get(rseg->space_id, rseg->page_no, rseg->page_size, &mtr);
-
-  auto hdr_addr = trx_erase_get_log_from_sp(
-      flst_get_last(rseg_hdr + TRX_RSEG_SEMI_PURGE_LIST, &mtr));
-
-  mtr_commit(&mtr);
-
-  return hdr_addr.page == FIL_NULL;
 }
 
 /**
@@ -976,4 +1077,115 @@ void trx_erase_t::push_erased(const commit_order_t &ommt) {
   erased_scn.store(ommt.scn);
   erased_gcn.flush(ommt.gcn);
 }
+
+void trx_rseg_init_erase_heap(trx_rseg_t *rseg, trx_rsegf_t *rseg_hdr,
+                              lizard::erase_heap_t *erase_heap, ulint sp_len,
+                              bool parallel, mtr_t *mtr) {
+  ut_ad(!rseg->is_txn);
+
+  if (sp_len == 0) {
+    rseg->last_erase_page_no = FIL_NULL;
+    ut_a(rseg->last_erase_ommt.is_null());
+    return;
+  }
+
+  auto node_addr = trx_erase_get_log_from_sp(
+      flst_get_last(rseg_hdr + TRX_RSEG_SEMI_PURGE_LIST, mtr));
+
+  rseg->last_erase_page_no = node_addr.page;
+  rseg->last_erase_offset = node_addr.boffset;
+
+  auto undo_log_hdr =
+      trx_undo_page_get(page_id_t(rseg->space_id, node_addr.page),
+                        rseg->page_size, mtr) +
+      node_addr.boffset;
+
+  /** Lizard: Retrieve the lowest SCN from semi-purge list. */
+  commit_mark_t cmmt = lizard::trx_undo_hdr_read_cmmt(undo_log_hdr, mtr);
+  assert_commit_mark_allocated(cmmt);
+  rseg->last_erase_ommt = cmmt;
+
+  rseg->last_erase_del_marks =
+      mtr_read_ulint(undo_log_hdr + TRX_UNDO_DEL_MARKS, MLOG_2BYTES, mtr);
+
+  lizard::UpdateUndoRseg elem(rseg->last_erase_ommt.scn, rseg);
+
+  if (rseg->last_erase_page_no != FIL_NULL) {
+    ut_ad(srv_is_being_started);
+
+    ut_ad(rseg->space_id == TRX_SYS_SPACE ||
+          (srv_is_upgrade_mode != undo::is_reserved(rseg->space_id)));
+
+    if (parallel) {
+      mutex_enter(&erase_sys->pq_mutex);
+      erase_heap->push(std::move(elem));
+      mutex_exit(&erase_sys->pq_mutex);
+    } else {
+      erase_heap->push(std::move(elem));
+    }
+  }
 }
+
+/**
+ * Add the rseg into the erase heap.
+ *
+ * @param rseg        Rollback segment
+ * @param scn         Scn of the undo log added to the semi-purge list
+ */
+void trx_add_rsegs_for_erase(trx_rseg_t *rseg, const fil_addr_t &hdr_addr,
+                             bool del_mark, const commit_mark_t &cmmt) {
+  ut_ad(cmmt.scn != SCN_NULL);
+  ut_ad(rseg && !rseg->is_txn);
+  ut_ad(mutex_own(&rseg->mutex));
+
+  if (rseg->last_erase_page_no == FIL_NULL) {
+    /** Assign last_erase_*. */
+    rseg->last_erase_page_no = hdr_addr.page;
+    rseg->last_erase_offset = hdr_addr.boffset;
+    rseg->last_erase_del_marks = del_mark;
+    rseg->last_erase_ommt = cmmt;
+
+    /** Push erase heap. */
+    UpdateUndoRseg elem(cmmt.scn, rseg);
+    mutex_enter(&erase_sys->pq_mutex);
+    erase_sys->erase_heap->push(std::move(elem));
+    lizard_erased_scn_validation();
+    mutex_exit(&erase_sys->pq_mutex);
+  }
+}
+
+#if defined UNIV_DEBUG || defined LIZARD_DEBUG
+/**
+ * Validate all transactions whose SCN > erased_scn is always unerased.
+ * @return         true      sucessful validation
+ */
+bool erased_scn_validation() {
+  bool ret = false;
+  scn_t top_scn;
+
+  /** If undo log scan is forbidden, erase_sys->erased_scn can't get a valid
+  value */
+  if (srv_force_recovery >= SRV_FORCE_NO_UNDO_LOG_SCAN) {
+    return true;
+  }
+
+  /* erase sys not init yet */
+  if (!erase_sys) return true;
+
+  ut_a(mutex_own(&erase_sys->pq_mutex));
+
+  ut_a(erase_sys->erased_scn.load() != ERASED_SCN_INVALID);
+
+  if (!erase_sys->erase_heap->empty()) {
+    top_scn = erase_sys->erase_heap->top().get_scn();
+    ret = (erase_sys->erased_scn.load() <= top_scn);
+  } else {
+    ret = (erase_sys->erased_scn.load() <= purge_sys->purged_scn.load());
+  }
+  ut_ad(ret);
+
+  return ret;
+}
+#endif /* UNIV_DEBUG || defined LIZARD_DEBUG */
+
+}  // namespace lizard

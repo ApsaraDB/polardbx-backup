@@ -757,7 +757,7 @@ static void trx_resurrect_table_ids(trx_t *trx, const trx_undo_ptr_t *undo_ptr,
   mtr_t mtr;
   page_t *undo_page;
   trx_undo_rec_t *undo_rec;
-  bool is_2pc_purge = false;
+  bool is_2pp = false;
 
   ut_ad(undo == undo_ptr->insert_undo || undo == undo_ptr->update_undo);
 
@@ -795,7 +795,7 @@ static void trx_resurrect_table_ids(trx_t *trx, const trx_undo_ptr_t *undo_ptr,
     }
 
     trx_undo_rec_get_pars(undo_rec, &type, &cmpl_info, &updated_extern,
-                          &undo_no, &table_id, &is_2pc_purge, type_cmpl);
+                          &undo_no, &table_id, &is_2pp, type_cmpl);
     tables.insert(table_id);
 
     undo_rec = trx_undo_get_prev_rec(undo_rec, undo->hdr_page_no,
@@ -1251,6 +1251,9 @@ static trx_rseg_t *get_next_redo_rseg_from_undo_spaces() {
     undo_space = undo::spaces->at(spaces_slot + FSP_IMPLICIT_TXN_TABLESPACES);
 
     ut_ad(!lizard::fsp_is_txn_tablespace_by_id(undo_space->id()));
+
+    DBUG_EXECUTE_IF("set_same_non_txn_undo_rseg", spaces_slot = 0;
+                    rseg_slot = 0;);
 
     /* Avoid any rseg that resides in a tablespace that has been made
     inactive either explicitly or by being marked for truncate. We do

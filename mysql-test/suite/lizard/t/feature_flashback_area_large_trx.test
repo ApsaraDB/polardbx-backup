@@ -1,0 +1,140 @@
+--source include/have_debug.inc
+
+connection default;
+SET DEBUG='+d,set_same_non_txn_undo_rseg';
+set global innodb_undo_retention = 0;
+set global innodb_txn_retention = 0;
+set global innodb_purge_rseg_truncate_frequency = 1;
+set global innodb_undo_log_truncate = 1;
+set global innodb_purge_batch_size = 1;
+set global innodb_trx_rseg_n_slots_debug = 3;
+
+--echo ====================================================
+--echo Test undo truncatation for large trx.
+--echo ====================================================
+set opt_flashback_area = 1; 
+CREATE TABLE t1 ( id int NOT NULL, k int NOT NULL, c int NOT NULL, pad varchar(8192), PRIMARY KEY (id), KEY (k));
+
+INSERT INTO t1 (id, k, c, pad) VALUES (1, 1, 1, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (2, 2, 2, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (3, 3, 3, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (4, 4, 4, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (5, 5, 5, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (6, 6, 6, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (7, 7, 7, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (8, 8, 8, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (9, 9, 9, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+INSERT INTO t1 (id, k, c, pad) VALUES (10, 10, 10, LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000))));
+
+set opt_flashback_area = 0;
+create table t2 like t1;
+INSERT INTO t2 SELECT * FROM t1;
+
+select * from information_schema.innodb_table_status where table_name='t1' or table_name='t2';
+
+--source include/wait_innodb_all_purged.inc
+set global innodb_purge_stop_now=ON;
+
+begin;
+update t1 set k = 0 where id = 1;
+update t2 set k = 0 where id = 1;
+commit;
+
+begin;
+update t2 set k = 0 where id = 2;
+update t1 set k = 0 where id = 2;
+commit;
+
+begin;
+update t1 set k = 0 where id = 3;
+update t2 set k = 0 where id = 3;
+commit;
+
+begin;
+delete from t1 where id = 1;
+update t1 set pad = LEFT(REPEAT('B', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+delete from t2 where id = 1;
+update t2 set pad = LEFT(REPEAT('B', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+commit;
+
+begin;
+update t2 set k = 0 where id = 4;
+update t1 set k = 0 where id = 4;
+commit;
+
+begin;
+update t1 set k = 0 where id = 5;
+update t2 set k = 0 where id = 5;
+commit;
+
+begin;
+delete from t2 where id = 2;
+update t2 set pad = LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+delete from t1 where id = 2;
+update t1 set pad = LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+commit;
+
+begin;
+update t2 set k = 0 where id = 6;
+update t1 set k = 0 where id = 6;
+commit;
+
+begin;
+update t1 set k = 0 where id = 7;
+update t2 set k = 0 where id = 7;
+commit;
+
+begin;
+delete from t1 where id = 3;
+update t1 set pad = LEFT(REPEAT('B', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+delete from t2 where id = 3;
+update t2 set pad = LEFT(REPEAT('B', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+commit;
+
+set global innodb_purge_run_now=ON;
+--source include/wait_innodb_all_purged.inc
+set global innodb_purge_stop_now=ON;
+
+begin;
+update t2 set k = 0 where id = 8;
+update t1 set k = 0 where id = 8;
+commit;
+
+begin;
+update t1 set k = 0 where id = 9;
+update t2 set k = 0 where id = 9;
+commit;
+
+begin;
+delete from t2 where id = 4;
+update t2 set pad = LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+delete from t1 where id = 4;
+update t1 set pad = LEFT(REPEAT('A', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+commit;
+
+begin;
+update t2 set k = 0 where id = 10;
+update t1 set k = 0 where id = 10;
+commit;
+
+begin;
+delete from t1 where id = 5;
+update t1 set pad = LEFT(REPEAT('B', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+delete from t2 where id = 5;
+update t2 set pad = LEFT(REPEAT('B', 4000), CHAR_LENGTH(REPEAT('A', 4000)));
+commit;
+
+set global innodb_purge_run_now=ON;
+--source include/wait_innodb_all_purged.inc
+
+set opt_flashback_area = default;
+set global innodb_undo_retention = default;
+set global innodb_txn_retention = default;
+set global innodb_purge_rseg_truncate_frequency = default;
+set global innodb_undo_log_truncate = default;
+set global innodb_purge_batch_size = default;
+set global innodb_trx_rseg_n_slots_debug = default;
+
+connection default;
+drop table t1;
+drop table t2;

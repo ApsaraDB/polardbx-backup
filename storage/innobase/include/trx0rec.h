@@ -321,7 +321,7 @@ constexpr uint32_t TRX_UNDO_UPD_EXTERN = 128;
 
 /* Lizard: This bit indicates whether this undo record will undergo a two-phase
  purge when purging . */
-constexpr uint32_t TRX_UNDO_UPD_FLAG_2PC_PURGE = 128;
+constexpr uint32_t TRX_UNDO_UPD_FLAG_2PP = 128;
 
 /** Operation type flags used in trx_undo_report_row_operation */
 constexpr uint32_t TRX_UNDO_INSERT_OP = 1;
@@ -379,7 +379,7 @@ byte *trx_undo_rec_get_pars(
                               externally stored fild */
     undo_no_t *undo_no,       /*!< out: undo log record number */
     table_id_t *table_id,     /*!< out: table id */
-    bool *is_2pc_purge,       /*!< out: true if it's 2pc purge */
+    bool *is_2pp,       /*!< out: true if it's two phase purge */
     type_cmpl_t &type_cmpl);  /*!< out: type compilation info. */
 
 /** Get the max free space of undo log by assuming it's a fresh new page

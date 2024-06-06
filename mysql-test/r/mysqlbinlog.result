@@ -51,6 +51,7 @@ SET @@session.innodb_commit_seq=##/*!*/;
 SET @@SESSION.GTID_NEXT= '#'/*!*/;
 SET TIMESTAMP=#/*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 create table t1 (word varchar(20))
 /*!*/;
 SET @@session.innodb_commit_seq=##/*!*/;
@@ -62,6 +63,7 @@ SET @@session.innodb_commit_seq=##/*!*/;
 SET @@SESSION.GTID_NEXT= '#'/*!*/;
 SET TIMESTAMP=#/*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 create table t2 (id int auto_increment not null primary key)
 /*!*/;
 SET @@session.innodb_commit_seq=##/*!*/;
@@ -482,6 +484,7 @@ SET @@session.innodb_commit_seq=##/*!*/;
 SET @@SESSION.GTID_NEXT= '#'/*!*/;
 SET TIMESTAMP=#/*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 create table t1 (word varchar(20))
 /*!*/;
 SET @@session.innodb_commit_seq=##/*!*/;
@@ -493,6 +496,7 @@ SET @@session.innodb_commit_seq=##/*!*/;
 SET @@SESSION.GTID_NEXT= '#'/*!*/;
 SET TIMESTAMP=#/*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 create table t2 (id int auto_increment not null primary key)
 /*!*/;
 SET @@session.innodb_commit_seq=##/*!*/;
@@ -942,6 +946,7 @@ SET @@session.lc_time_names=0/*!*/;
 SET @@session.collation_database=DEFAULT/*!*/;
 /*!80011 SET @@session.default_collation_for_utf8mb4=255*//*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 create table t1 (a varchar(64) character set utf8)
 /*!*/;
 SET @@session.innodb_commit_seq=##/*!*/;

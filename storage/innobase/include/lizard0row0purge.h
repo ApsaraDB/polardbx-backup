@@ -35,7 +35,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 namespace lizard {
 
 /** Purge phase for 2PC-Purge */
-enum e_2pc_purge_phase {
+enum e_2pp_phase {
   /** Purge history list. */
   PURGE_HISTORY_LIST,
   /** Purge semi-purge list. */

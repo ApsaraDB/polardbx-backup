@@ -4655,7 +4655,7 @@ template <typename Table>
     /* TODO: Fix this problematic assignment */
     ctx->new_table->dd_space_id = new_dd_tab->tablespace_id();
 
-    ctx->new_table->is_2pc_purge =
+    ctx->new_table->is_2pp =
         lizard::dd_table_get_flashback_area(*new_dd_tab);
 
     /* The rebuilt indexed_table will use the renamed

@@ -4894,7 +4894,7 @@ static inline dict_table_t *dd_fill_dict_table(const Table *dd_tab,
 
   if (lizard::dd_table_get_flashback_area(dd_tab->table())) {
     ut_ad(!m_table->is_temporary());
-    m_table->is_2pc_purge = true;
+    m_table->is_2pp = true;
   }
 
   mem_heap_t *heap = mem_heap_create(1000, UT_LOCATION_HERE);

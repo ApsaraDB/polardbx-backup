@@ -114,6 +114,7 @@ bool srv_upgrade_old_undo_found = false;
 #include "lizard0cleanout.h"
 #include "lizard0gcs.h"
 #include "lizard0erase.h"
+#include "row0purge.h"
 
 /* Revert to old partition file name if upgrade fails. */
 bool srv_downgrade_partition_files = false;
@@ -1768,6 +1769,9 @@ void srv_export_innodb_status(void) {
         (ulint)(max_trx_scn - low_limit_scn + 1);
   }
 
+  export_vars.innodb_purge_done_scn = done_trx_scn;
+  export_vars.innodb_erase_done_scn = lizard::erase_sys->done.ommt.scn;
+
 #endif /* UNIV_DEBUG */
 
   mutex_exit(&srv_innodb_monitor_mutex);
@@ -2835,7 +2839,13 @@ static bool srv_task_execute(void) {
   if (thr != nullptr) {
     que_run_threads(thr);
 
-    purge_sys->n_completed.fetch_add(1);
+    ut_ad(que_node_get_type(thr->child) == QUE_NODE_PURGE);
+    purge_node_t *node = static_cast<purge_node_t *>(thr->child);
+    if (node->is_history_purge()) {
+      purge_sys->n_completed.fetch_add(1);
+    } else {
+      lizard::erase_sys->n_completed.fetch_add(1);
+    }
   }
 
   return (thr != nullptr);
@@ -2979,7 +2989,7 @@ static ulint srv_do_purge(ulint *n_total_purged,
     }
 
     n_pages_erased =
-        lizard::trx_erase(1, srv_purge_batch_size, true);
+        lizard::trx_erase(n_use_threads, srv_purge_batch_size, do_truncate);
 
   } while (
       purge_sys->state == PURGE_STATE_RUN &&

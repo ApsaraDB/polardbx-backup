@@ -161,6 +161,7 @@ SET @@session.lc_time_names=0/*!*/;
 SET @@session.collation_database=DEFAULT/*!*/;
 /*!80011 SET @@session.default_collation_for_utf8mb4=255*//*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 CREATE TABLE t1 (
 c1 INT,
 c2 VARCHAR(20)
@@ -181,6 +182,7 @@ SET @@SESSION.GTID_NEXT= '#'/*!*/;
 # # server id #  end_log_pos # CRC32 # 	Query	thread_id=#	exec_time=#	error_code=0
 SET TIMESTAMP=#/*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
+/*!80032 SET @@session.opt_flashback_area=0*//*!*/;
 CREATE TABLE t2 (
 c1 INT,
 c2 VARCHAR(20)

@@ -1,3 +1,5 @@
+--source include/skip_flashback_area.inc
+
 # Innodb page size 16k required
 
 # Initialise

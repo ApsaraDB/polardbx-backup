@@ -757,6 +757,7 @@ static PSI_mutex_info all_innodb_mutexes[] = {
     PSI_MUTEX_KEY(parallel_read_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(dblwr_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(purge_sys_pq_mutex, 0, 0, PSI_DOCUMENT_ME),
+    PSI_MUTEX_KEY(erase_sys_pq_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(recv_sys_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(recv_writer_mutex, 0, 0, PSI_DOCUMENT_ME),
     PSI_MUTEX_KEY(temp_space_rseg_mutex, 0, 0, PSI_DOCUMENT_ME),
@@ -1353,8 +1354,11 @@ static SHOW_VAR innodb_status_variables[] = {
     //  SHOW_LONG, SHOW_SCOPE_GLOBAL},
     {"purge_trx_scn_age", (char *)&export_vars.innodb_purge_trx_scn_age,
      SHOW_LONG, SHOW_SCOPE_GLOBAL},
-    {"purge_view_trx_scn_age", (char *)&export_vars.innodb_purge_view_trx_scn_age,
-     SHOW_LONG, SHOW_SCOPE_GLOBAL},
+    {"purge_view_trx_scn_age",
+     (char *)&export_vars.innodb_purge_view_trx_scn_age, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+    {"erase_done_scn", (char *)&export_vars.innodb_erase_done_scn, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
     {"ahi_drop_lookups", (char *)&export_vars.innodb_ahi_drop_lookups,
      SHOW_LONG, SHOW_SCOPE_GLOBAL},
 #endif /* UNIV_DEBUG */
@@ -12088,7 +12092,7 @@ void innodb_base_col_setup_for_stored(const dict_table_t *table,
   }
 
   if (err == DB_SUCCESS) {
-    table->is_2pc_purge =
+    table->is_2pp =
         dd_table ? lizard::dd_table_get_flashback_area(*dd_table) : false;
   }
 

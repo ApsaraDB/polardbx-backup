@@ -35,9 +35,23 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "trx0purge.h"
 
+/**	Two Phase Purge (2PP)
+ *
+ * Followed 2PC naming tradition, we introduce a new purge stratedy,
+ *
+ * Two phase purge:
+ *
+ * 	First stage is original purge;
+ *
+ * 	Second stage is erase that is named by LIZARD system.
+ */
+
 class THD;
 
 typedef purge_iter_t erase_iter_t;
+
+/** erased_scn is not valid */
+constexpr scn_t ERASED_SCN_INVALID = lizard::SCN_NULL;
 
 namespace lizard {
 
@@ -88,8 +102,8 @@ struct trx_erase_t {
   /** Header byte offset on the page */
   ulint hdr_offset;
 
-  /** TXN address of the undo log */
-  slot_addr_t txn_addr;
+  /** TXN cursor */
+  txn_cursor_t txn_cursor;
 
   /** Heap for reading the undo log records */
   mem_heap_t *heap;
@@ -101,6 +115,19 @@ struct trx_erase_t {
   /** Similar with erased_scn */
   lizard::Erased_gcn erased_gcn;
 
+  /** Binary min-heap, ordered on UpdateUndoRseg::scn. It is protected
+  by the pq_mutex */
+  lizard::erase_heap_t *erase_heap;
+
+  /** Mutex protecting erase_heap */
+  PQMutex pq_mutex;
+
+#ifdef UNIV_DEBUG
+  /** The limit iterator in the purge truncation. All undo records to be erased
+   * must not exceed this limit. */
+  purge_iter_t oldest_vision;
+#endif /* UNIV_DEBUG */
+
   void push_erased(const commit_order_t &ommt);
 };
 
@@ -111,8 +138,10 @@ extern void trx_erase_sys_mem_create();
 
 /** Creates the global erase system control structure and inits the history
 mutex.
-@param[in]      n_purge_threads   number of purge threads */
-extern void trx_erase_sys_initialize(uint32_t n_purge_threads);
+@param[in]      n_purge_threads   number of purge threads
+@param[in]      erase_heap        UNDO log min binary heap */
+extern void trx_erase_sys_initialize(uint32_t n_purge_threads,
+                                     lizard::erase_heap_t *erase_heap);
 
 extern void trx_erase_sys_close();
 /**
@@ -132,17 +161,14 @@ extern trx_undo_rec_t *trx_erase_fetch_next_rec(
     roll_ptr_t *roll_ptr,   /*!< out: roll pointer to undo record */
     ulint *n_pages_handled, /*!< in/out: number of UNDO log pages
                             handled */
-    bool *last_log_rec,     /*!< out: last log record */
     mem_heap_t *heap);      /*!< in: memory heap where copied */
 
 /** This function runs a purge batch.
 @param[in]      n_purge_threads  number of purge threads
 @param[in]      batch_size       number of pages to purge
-@param[out]     next_sp_log      should truncate current sp log so that next
-                                 sp log can be choosen.
 @return number of undo log pages handled in the batch */
 extern ulint trx_erase_attach_undo_recs(const ulint n_purge_threads,
-                                        ulint batch_size, bool *next_sp_log);
+                                        ulint batch_size);
 
 extern ulint trx_erase(ulint n_purge_threads, ulint batch_size, bool truncate);
 
@@ -162,9 +188,6 @@ static inline bool trx_erase_check_limit() {
              erase_sys->limit.undo_rseg_space))));
 }
 
-/** return true if sp list is empty. */
-extern bool trx_erase_sp_list_is_empty(trx_rseg_t *rseg);
-
 /**
   precheck if txn of the row is erased, without really reading txn
 
@@ -174,6 +197,45 @@ extern bool trx_erase_sp_list_is_empty(trx_rseg_t *rseg);
 */
 bool precheck_if_txn_is_erased(const txn_rec_t *txn_rec);
 
+/**
+ * Initializes the erase heap and related members in rseg.
+ *
+ * @param rseg        Rollback segment
+ * @param rseg_hdr    Rollback segment header
+ * @param erase_heap  Erase heap
+ * @param sp_len      Length of the semi-purge list
+ * @param parallel    Whether the function is called in parallel
+ * @param mtr         Mini-transaction
+ */
+void trx_rseg_init_erase_heap(trx_rseg_t *rseg, trx_rsegf_t *rseg_hdr,
+                              lizard::erase_heap_t *erase_heap, ulint sp_len,
+                              bool parallel, mtr_t *mtr);
+
+/**
+ * Add the rseg into the erase heap.
+ *
+ * @param rseg        Rollback segment
+ * @param scn         Scn of the undo log added to the semi-purge list
+ */
+void trx_add_rsegs_for_erase(trx_rseg_t *rseg, const fil_addr_t &hdr_addr,
+                             bool del_mark, const commit_mark_t &cmmt);
+#if defined UNIV_DEBUG || defined LIZARD_DEBUG
+/**
+ * Validate all transactions whose SCN > erased_scn is always unerased.
+ * @return         true      sucessful validation
+ */
+bool erased_scn_validation();
+#endif /* UNIV_DEBUG || defined LIZARD_DEBUG */
+
 }  // namespace lizard
+
+#if defined UNIV_DEBUG || defined LIZARD_DEBUG
+#define lizard_erased_scn_validation()     \
+  do {                                     \
+    ut_a(lizard::erased_scn_validation()); \
+  } while (0)
+#else
+#define lizard_erased_scn_validation()
+#endif /* UNIV_DEBUG || defined LIZARD_DEBUG */
 
 #endif

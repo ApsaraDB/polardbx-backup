@@ -38,6 +38,16 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "page0size.h"
 #include "lizard0gcs.h"
 
+/**	Two Phase Purge (2PP)
+ *
+ * Followed 2PC naming tradition, we introduce a new purge stratedy,
+ *
+ * Two phase purge:
+ *
+ * 	First stage is original purge;
+ *
+ * 	Second stage is erase that is named by LIZARD system.
+ */
 struct trx_purge_t;
 struct mtr_t;
 
@@ -133,12 +143,12 @@ void trx_purge_add_sp_list(trx_rseg_t *rseg, trx_rsegf_t *rseg_hdr,
                            trx_ulogf_t *log_hdr, ulint type, mtr_t *mtr);
 
 /**
- * Removes the undo segment from the history list.
+ * Migrate the undo log segment from the history list to semi-purge list.
  *
  * @param[in] rseg            Rollback segment
  * @param[in] hdr_addr        File address of log_hdr
  */
-void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr);
+void trx_purge_migrate_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr);
 
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
 /**

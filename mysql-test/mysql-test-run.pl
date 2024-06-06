@@ -591,6 +591,10 @@ sub main {
     }
   }
 
+  if ($opt_flashback_area) {
+    $opt_suites .= ",flashback_area";
+  }
+
   my $mtr_suites = $opt_suites;
   # Skip suites which don't match the --do-suite filter
   if ($opt_do_suite) {

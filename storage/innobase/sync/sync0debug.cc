@@ -1315,6 +1315,8 @@ static void sync_latch_meta_init() UNIV_NOTHROW {
 
   LATCH_ADD_MUTEX(PURGE_SYS_PQ, SYNC_PURGE_QUEUE, purge_sys_pq_mutex_key);
 
+  LATCH_ADD_MUTEX(ERASE_SYS_PQ, SYNC_PURGE_QUEUE, erase_sys_pq_mutex_key);
+
   LATCH_ADD_MUTEX(RECALC_POOL, SYNC_STATS_AUTO_RECALC, recalc_pool_mutex_key);
 
   LATCH_ADD_MUTEX(RECV_SYS, SYNC_RECV, recv_sys_mutex_key);

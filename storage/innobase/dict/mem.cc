@@ -268,7 +268,7 @@ dict_table_t *dict_mem_table_create(const char *name, space_id_t space,
   table->is_dd_table = false;
   table->explicitly_non_lru = false;
 
-  table->is_2pc_purge = false;
+  table->is_2pp = false;
 
   return (table);
 }

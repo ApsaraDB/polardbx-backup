@@ -35,6 +35,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0gcs.h"
 #include "lizard0dbg.h"
 #include "lizard0undo.h"
+#include "lizard0erase.h"
+
 
 #include "mtr0log.h"
 #include "trx0purge.h"
@@ -229,12 +231,12 @@ void trx_purge_add_sp_list(trx_rseg_t *rseg, trx_rsegf_t *rseg_hdr,
 }
 
 /**
- * Removes the undo segment from the history list.
+ * Migrate the undo log segment from the history list to semi-purge list.
  *
  * @param[in] rseg            Rollback segment
  * @param[in] hdr_addr        File address of log_hdr
  */
-void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr) {
+void trx_purge_migrate_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr) {
   mtr_t mtr;
   page_t *undo_page;
   trx_rsegf_t *rseg_hdr;
@@ -244,6 +246,8 @@ void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr) {
   ulint hist_size;
   ulint sp_size;
   ulint type;
+  bool del_mark = false;
+  commit_mark_t cmmt;
 
   mtr_start(&mtr);
   mutex_enter(&rseg->mutex);
@@ -254,10 +258,13 @@ void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr) {
                                 rseg->page_size, &mtr);
   seg_hdr = undo_page + TRX_UNDO_SEG_HDR;
   log_hdr = undo_page + hdr_addr.boffset;
+
   type = mach_read_from_2(undo_page + TRX_UNDO_PAGE_HDR + TRX_UNDO_PAGE_TYPE);
+  del_mark = mtr_read_ulint(log_hdr + TRX_UNDO_DEL_MARKS, MLOG_2BYTES, &mtr);
+  cmmt = trx_undo_hdr_read_cmmt(log_hdr, &mtr);
 
   ut_ad(type == TRX_UNDO_UPDATE);
-  ut_ad(lizard::trx_useg_is_2pc_purge(undo_page, rseg->page_size, &mtr));
+  ut_ad(lizard::trx_useg_is_2pp(undo_page, rseg->page_size, &mtr));
   ut_ad(mach_read_from_2(log_hdr + TRX_UNDO_NEXT_LOG) == 0);
 
   seg_size = flst_get_len(seg_hdr + TRX_UNDO_PAGE_LIST);
@@ -276,6 +283,9 @@ void trx_purge_remove_last_log(trx_rseg_t *rseg, fil_addr_t hdr_addr) {
   trx_purge_add_sp_list(rseg, rseg_hdr, log_hdr, type, &mtr);
   mlog_write_ulint(rseg_hdr + TRX_RSEG_SEMI_PURGE_LIST_SIZE, sp_size + seg_size,
                    MLOG_4BYTES, &mtr);
+
+  /** Add into erase heap if necessary. */
+  trx_add_rsegs_for_erase(rseg, hdr_addr, del_mark, cmmt);
 
   mutex_exit(&rseg->mutex);
   mtr_commit(&mtr);

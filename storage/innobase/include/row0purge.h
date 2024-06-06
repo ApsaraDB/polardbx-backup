@@ -171,14 +171,14 @@ struct purge_node_t {
   /** trx id for this purging record */
   trx_id_t modifier_trx_id;
 
-  /** Lizard: true if it's a 2pc purge record.  */
-  bool is_2pc_purge;
+  /** Lizard: true if it's a two phase purge record.  */
+  bool is_2pp;
 
   /** Undo recs to purge */
   Recs *recs;
 
-  /** Purge phase for 2pc purge. */
-  lizard::e_2pc_purge_phase phase;
+  /** Purge phase for two phase purge. */
+  lizard::e_2pp_phase phase;
 
   void init() { new (&m_lob_pages) LOB_free_set(); }
   void deinit() {
@@ -224,6 +224,8 @@ struct purge_node_t {
 
   /** Start erase semi-purge list. */
   void start_sp_erase() { phase = lizard::PURGE_SP_LIST; }
+
+  bool is_history_purge() const { return phase == lizard::PURGE_HISTORY_LIST; }
 
  private:
   using LOB_free_set = std::set<Page_free_tuple, Compare_page_free_tuple,

@@ -466,11 +466,13 @@ const uint32_t max_rseg_init_threads = 4;
 
 /** Creates and initializes the central memory structures for the transaction
  system. This is called when the database is started.
- @return min binary heap of rsegs to purge */
-lizard::purge_heap_t *trx_sys_init_at_db_start(void) {
+ @return pair of min binary heaps of rsegs to purge / erase */
+std::pair<lizard::purge_heap_t *, lizard::erase_heap_t *>
+trx_sys_init_at_db_start(void) {
   /** Lizard: comment out */
   // purge_pq_t *purge_queue;
   lizard::purge_heap_t *purge_heap;
+  lizard::erase_heap_t *erase_heap;
   trx_sysf_t *sys_header;
   uint64_t rows_to_undo = 0;
   const char *unit = "";
@@ -480,6 +482,8 @@ lizard::purge_heap_t *trx_sys_init_at_db_start(void) {
   for freeing the binary heap. */
   purge_heap = ut::new_withkey<lizard::purge_heap_t>(UT_NEW_THIS_FILE_PSI_KEY);
   ut_a(purge_heap != nullptr);
+  erase_heap = ut::new_withkey<lizard::erase_heap_t>(UT_NEW_THIS_FILE_PSI_KEY);
+  ut_a(erase_heap != nullptr);
 
   if (srv_force_recovery < SRV_FORCE_NO_UNDO_LOG_SCAN) {
     /* Create the memory objects for all the rollback segments
@@ -496,9 +500,9 @@ lizard::purge_heap_t *trx_sys_init_at_db_start(void) {
     using Clock_point = std::chrono::time_point<Clock>;
     Clock_point start = Clock::now();
     if (srv_rseg_init_threads > 1) {
-      trx_rsegs_parallel_init(purge_heap);
+      trx_rsegs_parallel_init(purge_heap, erase_heap);
     } else {
-      trx_rsegs_init(purge_heap);
+      trx_rsegs_init(purge_heap, erase_heap);
     }
     Clock_point end = Clock::now();
     const auto time_diff =
@@ -578,7 +582,7 @@ lizard::purge_heap_t *trx_sys_init_at_db_start(void) {
 
   trx_sys_mutex_exit();
 
-  return (purge_heap);
+  return std::make_pair(purge_heap, erase_heap);
 }
 
 /** Creates the trx_sys instance and initializes purge_queue and mutex. */

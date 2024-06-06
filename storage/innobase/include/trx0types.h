@@ -286,11 +286,31 @@ struct trx_rseg_t {
   /** SCN number of the last not yet purged log, it still is in history list */
   commit_order_t last_ommt;
 
+  /** Whether it's txn rollsegment. */
+  bool is_txn;
+
   /** The maximum UTC in the oldest node of the txn free list.
    * This value is used to determine whether there are avaiable txns in the free
    * list can be reused in a quick mode. If the oldest node needs to be
    * retained, then there is no avaiable txn for reuse. */
   commit_order_t last_free_ommt;
+
+  /*--------------------------------------------------------*/
+  /** Fields for erase sys. */
+
+  /** Page number of the last not yet erased log header in the semi-purge
+  list; FIL_NULL if all list erased */
+  page_no_t last_erase_page_no{};
+
+  /** Byte offset of the last not yet erased log header */
+  size_t last_erase_offset{};
+
+  /** true if the last not yet erased log needs erasing */
+  bool last_erase_del_marks{};
+
+  /** Commit order of the last not yet erased log, it still is in semi-purge
+   * list */
+  commit_order_t last_erase_ommt;
 
   std::ostream &print(std::ostream &out) const {
     out << "[trx_rseg_t: this=" << (void *)this << ", id=" << id

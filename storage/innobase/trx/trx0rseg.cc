@@ -51,6 +51,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0mon.h"
 #include "lizard0cleanout.h"
 #include "lizard0undo0types.h"
+#include "lizard0erase.h"
 
 static std::atomic<uint32_t> active_rseg_init_threads{1};
 
@@ -276,8 +277,10 @@ static trx_rseg_t *trx_rseg_mem_initialize(ulint id, space_id_t space_id,
   rseg->page_size.copy_from(page_size);
   rseg->page_no = page_no;
   rseg->trx_ref_count = 0;
+  rseg->is_txn = false;
 
   if (lizard::fsp_is_txn_tablespace_by_id(space_id)) {
+    rseg->is_txn = true;
     mutex_create(LATCH_ID_TXN_UNDO_SPACE_RSEG, &rseg->mutex);
   } else if (fsp_is_system_temporary(space_id)) {
     mutex_create(LATCH_ID_TEMP_SPACE_RSEG, &rseg->mutex);
@@ -298,10 +301,9 @@ static trx_rseg_t *trx_rseg_mem_initialize(ulint id, space_id_t space_id,
   return rseg;
 }
 
-static trx_rseg_t *trx_rseg_physical_initialize(trx_rseg_t *rseg,
-                                                lizard::purge_heap_t *purge_heap,
-                                                scn_t gtid_trx_scn,
-                                                mtr_t *mtr) {
+static trx_rseg_t *trx_rseg_physical_initialize(
+    trx_rseg_t *rseg, lizard::purge_heap_t *purge_heap,
+    lizard::erase_heap_t *erase_heap, scn_t gtid_trx_scn, mtr_t *mtr) {
   auto rseg_header =
       trx_rsegf_get_new(rseg->space_id, rseg->page_no, rseg->page_size, mtr);
 
@@ -317,15 +319,21 @@ static trx_rseg_t *trx_rseg_physical_initialize(trx_rseg_t *rseg,
       mtr_read_ulint(rseg_header + TXN_RSEG_FREE_LIST_SIZE, MLOG_4BYTES, mtr) +
       1 + sum_of_undo_sizes);
 
-  /** Lizard: Initialize free list size */
-  auto free_list_len = flst_get_len(rseg_header + TXN_RSEG_FREE_LIST);
-  if (lizard::fsp_is_txn_tablespace_by_id(rseg->space_id) &&
-      free_list_len > 0) {
-    // lizard_ut_ad(lizard::fsp_is_txn_tablespace_by_id(rseg->space_id));
-    lizard::gcs->txn_undo_log_free_list_len += free_list_len;
+  if (rseg->is_txn) {
+    /** Lizard: Initialize free list size */
+    auto free_list_len = flst_get_len(rseg_header + TXN_RSEG_FREE_LIST);
+    if (free_list_len > 0) {
+      lizard::gcs->txn_undo_log_free_list_len += free_list_len;
 
-    fil_addr_t node_addr;
-    rseg->last_free_ommt = lizard::txn_free_get_last_log(rseg, node_addr);
+      fil_addr_t node_addr;
+      rseg->last_free_ommt =
+          lizard::txn_free_get_last_log(rseg, node_addr);
+    }
+  } else {
+    /** Lizard: Initialize erase heap and related members in rseg. */
+    auto sp_list_len = flst_get_len(rseg_header + TRX_RSEG_SEMI_PURGE_LIST);
+    lizard::trx_rseg_init_erase_heap(rseg, rseg_header, erase_heap, sp_list_len,
+                                     true, mtr);
   }
 
   /** Lizard: Init txn undo log hash table */
@@ -401,8 +409,10 @@ page_no_t trx_rseg_get_page_no(space_id_t space_id, ulint rseg_id) {
 
 /** Thread to initialize rollback segments in parallel.
 @param[in]      arg             purge queue
+@param[in]      erase_heap      erase heap
 @param[in]      gtid_trx_scn    GTID to be set in the rollback segment */
-void trx_rseg_init_thread(void *arg, trx_id_t gtid_trx_scn) {
+void trx_rseg_init_thread(void *arg, lizard::erase_heap_t *erase_heap,
+                          trx_id_t gtid_trx_scn) {
   trx_rseg_t *rseg = nullptr;
   lizard::purge_heap_t *purge_heap = (lizard::purge_heap_t *)arg;
   while (true) {
@@ -418,7 +428,8 @@ void trx_rseg_init_thread(void *arg, trx_id_t gtid_trx_scn) {
     mutex_exit(&purge_sys->pq_mutex);
 
     mtr_start(&mtr);
-    trx_rseg_physical_initialize(rseg, purge_heap, gtid_trx_scn, &mtr);
+    trx_rseg_physical_initialize(rseg, purge_heap, erase_heap, gtid_trx_scn,
+                                 &mtr);
     mtr_commit(&mtr);
   }
   active_rseg_init_threads.fetch_sub(1);
@@ -428,7 +439,7 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
                                 page_no_t page_no, const page_size_t &page_size,
                                 scn_t gtid_trx_scn,
                                 lizard::purge_heap_t *purge_heap,
-                                mtr_t *mtr) {
+                                lizard::erase_heap_t *erase_heap, mtr_t *mtr) {
   auto rseg = static_cast<trx_rseg_t *>(
       ut::zalloc_withkey(UT_NEW_THIS_FILE_PSI_KEY, sizeof(trx_rseg_t)));
 
@@ -437,8 +448,10 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
   rseg->page_size.copy_from(page_size);
   rseg->page_no = page_no;
   rseg->trx_ref_count = 0;
+  rseg->is_txn = false;
 
   if (lizard::fsp_is_txn_tablespace_by_id(space_id)) {
+    rseg->is_txn = true;
     mutex_create(LATCH_ID_TXN_UNDO_SPACE_RSEG, &rseg->mutex);
   } else if (fsp_is_system_temporary(space_id)) {
     mutex_create(LATCH_ID_TEMP_SPACE_RSEG, &rseg->mutex);
@@ -469,15 +482,21 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
       mtr_read_ulint(rseg_header + TXN_RSEG_FREE_LIST_SIZE, MLOG_4BYTES, mtr) +
       1 + sum_of_undo_sizes);
 
-  /** Lizard: Initialize free list size */
-  auto free_list_len = flst_get_len(rseg_header + TXN_RSEG_FREE_LIST);
-  if (lizard::fsp_is_txn_tablespace_by_id(rseg->space_id) &&
-      free_list_len > 0) {
-    // lizard_ut_ad(lizard::fsp_is_txn_tablespace_by_id(rseg->space_id));
-    lizard::gcs->txn_undo_log_free_list_len.fetch_add(free_list_len);
+  if (rseg->is_txn) {
+    /** Lizard: Initialize free list size */
+    auto free_list_len = flst_get_len(rseg_header + TXN_RSEG_FREE_LIST);
+    if (free_list_len > 0) {
+      lizard::gcs->txn_undo_log_free_list_len += free_list_len;
 
-    fil_addr_t node_addr;
-    rseg->last_free_ommt = lizard::txn_free_get_last_log(rseg, node_addr);
+      fil_addr_t node_addr;
+      rseg->last_free_ommt =
+          lizard::txn_free_get_last_log(rseg, node_addr);
+    }
+  } else {
+    /** Lizard: Initialize erase heap and related members in rseg. */
+    auto sp_list_len = flst_get_len(rseg_header + TRX_RSEG_SEMI_PURGE_LIST);
+    lizard::trx_rseg_init_erase_heap(rseg, rseg_header, erase_heap, sp_list_len,
+                                     false, mtr);
   }
 
   auto len = flst_get_len(rseg_header + TRX_RSEG_HISTORY);
@@ -649,7 +668,9 @@ void trx_rsegs_init_end() {
   purge_sys->rsegs_queue.clear();
 }
 
-void trx_rsegs_parallel_init(lizard::purge_heap_t *purge_heap) /*!< in: rseg queue */
+void trx_rsegs_parallel_init(
+    lizard::purge_heap_t *purge_heap, /*!< in: rseg heap for purge */
+    lizard::erase_heap_t *erase_heap) /*!< in: rseg heap for erase */
 {
   purge_sys->rsegs_queue.clear();
   std::vector<IB_thread> threads;
@@ -676,7 +697,7 @@ void trx_rsegs_parallel_init(lizard::purge_heap_t *purge_heap) /*!< in: rseg que
   for (uint32_t i = 0; i < srv_rseg_init_threads; i++) {
     auto thread =
         os_thread_create(parallel_rseg_init_thread_key, 0, trx_rseg_init_thread,
-                         (void *)purge_heap, gtid_trx_scn);
+                         (void *)purge_heap, erase_heap, gtid_trx_scn);
     threads.emplace_back(thread);
     thread.start();
   }
@@ -699,8 +720,10 @@ single-threaded startup.  If we find existing rseg slots in TRX_SYS page
 that reference undo tablespaces and have active undo logs, then quit.
 They require an upgrade of undo tablespaces and that cannot happen with
 active undo logs.
-@param[in]      purge_heap      queue of rsegs to purge */
-void trx_rsegs_init(lizard::purge_heap_t *purge_heap) {
+@param[in]      purge_heap      queue of rsegs to purge
+@param[in]      erase_heap      heap of rsegs to erase  */
+void trx_rsegs_init(lizard::purge_heap_t *purge_heap,
+                    lizard::erase_heap_t *erase_heap) {
   trx_sys->rseg_history_len.store(0);
   lizard::gcs->txn_undo_log_free_list_len.store(0);
 
@@ -735,7 +758,7 @@ void trx_rsegs_init(lizard::purge_heap_t *purge_heap) {
         Note that all tablespaces with rollback segments
         use univ_page_size. (system, temp & undo) */
         rseg = trx_rseg_mem_create(slot, space_id, page_no, univ_page_size,
-                                   gtid_trx_scn, purge_heap, &mtr);
+                                   gtid_trx_scn, purge_heap, erase_heap, &mtr);
 
         ut_a(rseg->id == slot);
 
@@ -770,7 +793,7 @@ void trx_rsegs_init(lizard::purge_heap_t *purge_heap) {
       use univ_page_size. */
       rseg =
           trx_rseg_mem_create(slot, undo_space->id(), page_no, univ_page_size,
-                              gtid_trx_scn, purge_heap, &mtr);
+                              gtid_trx_scn, purge_heap, erase_heap, &mtr);
 
       ut_a(rseg->id == slot);
 
@@ -977,7 +1000,8 @@ bool trx_rseg_add_rollback_segments(space_id_t space_id, ulong target_rsegs,
     }
 
     rseg = trx_rseg_mem_create(rseg_id, space_id, page_no, univ_page_size, 0,
-                               purge_sys->purge_heap, &mtr);
+                               purge_sys->purge_heap,
+                               lizard::erase_sys->erase_heap, &mtr);
 
     mtr.commit();
 

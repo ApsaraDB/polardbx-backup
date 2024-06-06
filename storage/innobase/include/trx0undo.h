@@ -205,9 +205,12 @@ freed, but emptied, if all the records there are below the limit.
 @param[in]      hdr_page_no     header page number
 @param[in]      hdr_offset      header offset on the page
 @param[in]      limit           first undo number to preserve
+@param[in]      in_history      true if it's in the history list,
+                                false if it's in the sp list
 (everything below the limit will be truncated) */
 void trx_undo_truncate_start(trx_rseg_t *rseg, page_no_t hdr_page_no,
-                             ulint hdr_offset, undo_no_t limit);
+                             ulint hdr_offset, undo_no_t limit,
+                             bool in_history);
 /** Initializes the undo log lists for a rollback segment memory copy.
  This function is only called when the database is started or a new
  rollback segment created.
@@ -390,7 +393,7 @@ struct trx_undo_t {
   @return true is the undo log segment is in prepared state, false otherwise.*/
   inline bool is_prepared() const;
 
-  inline bool is_2pc_purge() const;
+  inline bool is_2pp() const;
 
   /*-----------------------------*/
   ulint id;        /*!< undo log slot number within the
@@ -603,8 +606,8 @@ constexpr uint32_t TRX_UNDO_FLAG_XA_PREPARE_GTID = 0x04;
     true if undo log header is txn undo log header */
 constexpr uint32_t TRX_UNDO_FLAG_TXN = 0x80;
 /** Lizard: define txn/update undo log.
- *  true if undo log need to be 2pc purge. */
-constexpr uint32_t TRX_UNDO_FLAG_2PC_PURGE = 0x40;
+ *  true if undo log need to be two phase purge. */
+constexpr uint32_t TRX_UNDO_FLAG_2PP = 0x40;
 /** true if the transaction is a table create, index create, or drop
  transaction: in recovery the transaction cannot be rolled back in the usual
  way: a 'rollback' rather means dropping the created or dropped table, if it
@@ -711,11 +714,11 @@ constexpr uint32_t TRX_USEG_END = FIL_PAGE_DATA_END;
 /** flag of tailer*/
 constexpr uint32_t TRX_USEG_END_FLAG = 1;
 
-/** Flag 1: Whether exist 2pc purge log hdr in undo log segment. */
-constexpr uint32_t TRX_USEG_FLAG_EXIST_2PC_PURGE = 0x01;
+/** Flag 1: Whether exist two phase purge log hdr in undo log segment. */
+constexpr uint32_t TRX_USEG_FLAG_EXIST_2PP = 0x01;
 
 /** Mask TRX_USEG_END_FLAG */
-constexpr uint8_t TRX_USEG_END_FLAG_MASK = TRX_USEG_FLAG_EXIST_2PC_PURGE;
+constexpr uint8_t TRX_USEG_END_FLAG_MASK = TRX_USEG_FLAG_EXIST_2PP;
 
 /** Only bit_0 ~ bit_6 can be used. */
 static_assert(!(TRX_USEG_END_FLAG_MASK & 0x70));

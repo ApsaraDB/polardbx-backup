@@ -413,7 +413,6 @@ bool Snapshot_gcn_vision::too_old() const {
 void Snapshot_gcn_vision::after_activate() {
   handlerton *ttse = innodb_hton;
   assert(ttse);
-  ttse->ext.set_gcn_if_bigger(val_int());
   my_trx_id_t tid = ttse->ext.search_up_limit_tid_for_gcn(*this);
   set_up_limit_tid(tid);
   return;
@@ -480,6 +479,9 @@ void simulate_snapshot_clause(THD *thd, Table_ref *all_tables) {
       thd->variables.innodb_current_snapshot_gcn) {
     thd->owned_vision_gcn.set(MYSQL_CSR_AUTOMATIC, innodb_hton->ext.load_gcn(),
                               innodb_hton->ext.load_scn());
+  } else if (!thd->owned_vision_gcn.is_null()) {
+    handlerton *ttse = innodb_hton;
+    ttse->ext.set_gcn_if_bigger(thd->owned_vision_gcn.gcn);
   }
 
   if (!thd->owned_vision_gcn.is_null()) {

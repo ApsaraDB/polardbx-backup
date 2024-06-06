@@ -841,7 +841,7 @@ extern bool txn_rec_cleanout_state_by_misc(txn_rec_t *txn_rec, btr_pcur_t *pcur,
 
 inline bool txn_lookup_rollptr_is_valid(const txn_lookup_t *txn_lookup,
                                         bool flashback_area) {
-  if (flashback_area && txn_lookup->txn_undo_hdr.is_2pc_purge) {
+  if (flashback_area && txn_lookup->txn_undo_hdr.is_2pp) {
     return (txn_lookup->real_state < txn_state_t::TXN_STATE_ERASED);
   } else {
     return (txn_lookup->real_state < txn_state_t::TXN_STATE_PURGED);
@@ -899,8 +899,7 @@ inline void txn_undo_set_state(trx_ulogf_t *log_hdr, ulint state, mtr_t *mtr) {
 inline std::pair<commit_mark_t, bool> txn_undo_set_state_at_purge(
     const trx_rseg_t *rseg, const page_size_t &page_size) {
   commit_mark_t cmmt;
-
-  if (fsp_is_txn_tablespace_by_id(rseg->space_id)) {
+  if (rseg->is_txn) {
     mtr_t mtr;
     mtr_start(&mtr);
 
@@ -937,14 +936,12 @@ inline void txn_undo_set_state_at_init(trx_ulogf_t *log_hdr, mtr_t *mtr) {
   1. Can not hold any other undo page latch because no rsegs mutex is held.
   2. Did not hold rseg mutext because only a TXN undo page is modified.
 
-  @params[in]   txn_addr          TXN address
-  @params[in]   modifier_trx_id   Expect modifier trx id to check if the TXN
-                                  has been reused.
+  @params[in]   txn_cursor        TXN cursor
   @params[in]   scn               the corresponding scn
   @params[in]   page_size         TXN undo page size.
 */
-extern void txn_undo_set_state_at_erase(const slot_addr_t &txn_addr,
-                                        trx_id_t modifier_trx_id, scn_t scn,
+extern void txn_undo_set_state_at_erase(const txn_cursor_t &txn_cursor,
+                                        scn_t scn,
                                         const page_size_t &page_size);
 
 /*
@@ -1121,24 +1118,24 @@ void trx_undo_mem_init_for_txn(trx_rseg_t *rseg, trx_undo_t *undo,
                                const trx_ulogf_t *undo_header, ulint type,
                                uint32_t flag, ulint state, mtr_t *mtr);
 
-/** When report update undo, set 2pc flag if need.
+/** When report update undo, set 2pp flag if need.
  *
  * @param[in]		index	clust index
  * @param[in]		trx	transaction context
  * @param[in/out]	undo	update undo
  * @param[in/out]	mtr
- * @param[in/out]	is_2pc_purge */
-void trx_undo_set_2pc_purge_at_report(const dict_index_t *index, trx_t *trx,
+ * @param[in/out]	is_2pp */
+void trx_undo_set_2pp_at_report(const dict_index_t *index, trx_t *trx,
                                       trx_undo_t *update_undo,
-                                      bool is_2pc_purge);
+                                      bool is_2pp);
 
 /**
   Reads the two-phase commit purge flag in the transaction undo log header
   @param[in]  undo_header     Pointer to the undo log header
   @param[in]  mtr             Mini-transaction
-  @return     True if the 2PC Purge flag is set, false otherwise
+  @return     True if the 2PP flag is set, false otherwise
 */
-bool trx_undo_log_is_2pc_purge(const trx_ulogf_t *log_hdr, mtr_t *mtr);
+bool trx_undo_log_is_2pp(const trx_ulogf_t *log_hdr, mtr_t *mtr);
 
 /**
   Check if is two-phase purge flag in the undo log segment tailer.
@@ -1146,7 +1143,7 @@ bool trx_undo_log_is_2pc_purge(const trx_ulogf_t *log_hdr, mtr_t *mtr);
   @param[in]    page size
   @param[in]    mini transaction
 */
-bool trx_useg_is_2pc_purge(const page_t *undo_page,
+bool trx_useg_is_2pp(const page_t *undo_page,
                            const page_size_t &page_size, mtr_t *mtr);
 
 /**
@@ -1185,7 +1182,7 @@ commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
 /**
   Check if the TXN is purged or erased. The latch of the TXN page will be held
   if precheck failed.
-  @param[in]      roll_ptr        roll pointer to record
+
   @param[in/out]  txn_rec         txn_info of record
   @param[in]      flashback_area  true if it's a flashback area query
   @param[in]      txn_mtr         txn mtr
@@ -1193,8 +1190,8 @@ commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
   @retval         true if txn has been purged (non flashback area) or
                   erased (flashback area)
 */
-extern bool txn_undo_is_missing_history(roll_ptr_t roll_ptr, txn_rec_t *txn_rec,
-                                        bool flashback_area, mtr_t *txn_mtr);
+extern bool txn_undo_is_missing_history(txn_rec_t *txn_rec, bool flashback_area,
+                                        mtr_t *txn_mtr);
 
 /** Calculate rsegment status of undo tablespace.
  *

@@ -97,7 +97,7 @@ purge_node_t *row_purge_node_create(que_thr_t *parent, mem_heap_t *heap) {
   node->recs = nullptr;
   node->init();
 
-  node->is_2pc_purge = false;
+  node->is_2pp = false;
   node->phase = lizard::PURGE_HISTORY_LIST;
 
   return (node);
@@ -247,8 +247,8 @@ func_exit:
 [[nodiscard]] static bool row_purge_remove_clust_if_poss(
     purge_node_t *node) /*!< in/out: row purge node */
 {
-  if ((node->is_2pc_purge && node->phase == lizard::PURGE_HISTORY_LIST) ||
-      (!node->is_2pc_purge && node->phase == lizard::PURGE_SP_LIST)) {
+  if ((node->is_2pp && node->phase == lizard::PURGE_HISTORY_LIST) ||
+      (!node->is_2pp && node->phase == lizard::PURGE_SP_LIST)) {
     return (true);
   }
 
@@ -759,8 +759,8 @@ static void row_purge_upd_exist_or_extern_func(IF_DEBUG(const que_thr_t *thr, )
   mem_heap_free(heap);
 
 skip_secondaries:
-  if ((node->is_2pc_purge && node->phase == lizard::PURGE_HISTORY_LIST) ||
-      (!node->is_2pc_purge && node->phase == lizard::PURGE_SP_LIST)) {
+  if ((node->is_2pp && node->phase == lizard::PURGE_HISTORY_LIST) ||
+      (!node->is_2pp && node->phase == lizard::PURGE_SP_LIST)) {
     return;
   }
 
@@ -879,7 +879,7 @@ static bool row_purge_parse_undo_rec(purge_node_t *node,
   ut_ad(thr != nullptr);
 
   ptr = trx_undo_rec_get_pars(undo_rec, &type, &node->cmpl_info, updated_extern,
-                              &undo_no, &table_id, &node->is_2pc_purge,
+                              &undo_no, &table_id, &node->is_2pp,
                               type_cmpl);
 
   node->rec_type = type;

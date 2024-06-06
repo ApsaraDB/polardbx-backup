@@ -560,12 +560,12 @@ byte *trx_undo_rec_get_pars(
                               externally stored fild */
     undo_no_t *undo_no,       /*!< out: undo log record number */
     table_id_t *table_id,     /*!< out: table id */
-    bool *is_2pc_purge,       /*!< out: true if it's 2pc purge */
+    bool *is_2pp,             /*!< out: true if it's 2PP */
     type_cmpl_t &type_cmpl)   /*!< out: type compilation info */
 {
   const byte *ptr;
 
-  *is_2pc_purge = false;
+  *is_2pp = false;
 
   ptr = undo_rec + 2;
   ptr = type_cmpl.read(ptr);
@@ -582,8 +582,8 @@ byte *trx_undo_rec_get_pars(
     ptr++;
 
     ut_a(undo_rec_flags == 0x00 ||
-         undo_rec_flags == TRX_UNDO_UPD_FLAG_2PC_PURGE);
-    *is_2pc_purge = (undo_rec_flags & TRX_UNDO_UPD_FLAG_2PC_PURGE);
+         undo_rec_flags == TRX_UNDO_UPD_FLAG_2PP);
+    *is_2pp = (undo_rec_flags & TRX_UNDO_UPD_FLAG_2PP);
   }
 
   *undo_no = mach_read_next_much_compressed(&ptr);
@@ -1172,7 +1172,7 @@ static ulint trx_undo_page_report_modify(
     const dtuple_t *row,  /*!< in: clustered index row contains
                           virtual column info */
     const trx_undo_t *undo, /*!< The corresponding undo */
-    bool is_2pc_purge,    /*!< in: true if is 2pc purge */
+    bool is_2pp,    /*!< in: true if is 2PP */
     mtr_t *mtr)           /*!< in: mtr */
 {
   DBUG_TRACE;
@@ -1245,10 +1245,10 @@ static ulint trx_undo_page_report_modify(
   /* Introducing a change in undo log format. */
   *type_cmpl_ptr |= TRX_UNDO_MODIFY_BLOB;
 
-  /* Lizard: Set if it's a 2pc purge for an undo log record. */
-  if (is_2pc_purge) {
-    ut_ad(undo->is_2pc_purge());
-    flag |= TRX_UNDO_UPD_FLAG_2PC_PURGE;
+  /* Lizard: Set if it's a 2PP for an undo log record. */
+  if (is_2pp) {
+    ut_ad(undo->is_2pp());
+    flag |= TRX_UNDO_UPD_FLAG_2PP;
   }
 
   /* Introducing a new 1-byte flag. */
@@ -2181,7 +2181,7 @@ dberr_t trx_undo_report_row_operation(
   trx_undo_ptr_t *undo_ptr;
   mtr_t mtr;
   dberr_t err = DB_SUCCESS;
-  bool is_2pc_purge = false;
+  bool is_2pp = false;
 #ifdef UNIV_DEBUG
   int loop_count = 0;
 #endif /* UNIV_DEBUG */
@@ -2219,12 +2219,12 @@ dberr_t trx_undo_report_row_operation(
     trx_assign_rseg_temp(trx);
   }
 
-  is_2pc_purge = index->table->is_2pc_purge;
+  is_2pp = index->table->is_2pp;
 
   mtr_start(&mtr);
 
   if (is_temp_table) {
-    ut_ad(!is_2pc_purge);
+    ut_ad(!is_2pp);
     /* If object is temporary, disable REDO logging that
     is done to track changes done to UNDO logs. This is
     feasible given that temporary tables and temporary
@@ -2278,7 +2278,7 @@ dberr_t trx_undo_report_row_operation(
       }
 
       ut_ad(err == DB_SUCCESS);
-      lizard::trx_undo_set_2pc_purge_at_report(index, trx, undo, is_2pc_purge);
+      lizard::trx_undo_set_2pp_at_report(index, trx, undo, is_2pp);
       break;
   }
 
@@ -2305,7 +2305,7 @@ dberr_t trx_undo_report_row_operation(
         ut_ad(op_type == TRX_UNDO_MODIFY_OP);
         offset = trx_undo_page_report_modify(
             undo_page, trx, index, rec, offsets, update, cmpl_info, clust_entry,
-            undo, is_2pc_purge, &mtr);
+            undo, is_2pp, &mtr);
     }
 
     if (UNIV_UNLIKELY(offset == 0)) {
@@ -2470,8 +2470,8 @@ err_exit:
   rw_lock_s_lock(&purge_sys->latch, UT_LOCATION_HERE);
 
   if (is_as_of) {
-    missing_history = lizard::txn_undo_is_missing_history(
-        roll_ptr, txn_rec, flashback_area, txn_mtr);
+    missing_history =
+        lizard::txn_undo_is_missing_history(txn_rec, flashback_area, txn_mtr);
   } else {
     lizard::txn_rec_real_state_by_misc(txn_rec);
     missing_history = purge_sys->vision.modifications_visible(txn_rec, name);
@@ -2513,7 +2513,7 @@ bool trx_undo_prev_version_build(
   ulint info_bits;
   ulint cmpl_info;
   bool dummy_extern;
-  bool is_2pc_purge = false;
+  bool is_2pp = false;
   byte *buf;
 
   txn_info_t txn_info;
@@ -2568,7 +2568,7 @@ bool trx_undo_prev_version_build(
 
   type_cmpl_t type_cmpl;
   ptr = trx_undo_rec_get_pars(undo_rec, &type, &cmpl_info, &dummy_extern,
-                              &undo_no, &table_id, &is_2pc_purge, type_cmpl);
+                              &undo_no, &table_id, &is_2pp, type_cmpl);
 
   if (table_id != index->table->id) {
     /* The table should have been rebuilt, but purge has

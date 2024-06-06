@@ -1009,10 +1009,8 @@ buf_block_t *trx_undo_add_page(
 
 /** Frees an undo log page that is not the header page.
  @return last page number in remaining log */
-static page_no_t trx_undo_free_page(
+static page_no_t trx_undo_free_page_low(
     trx_rseg_t *rseg,      /*!< in: rollback segment */
-    bool in_history,       /*!< in: true if the undo log is in the history
-                            list */
     space_id_t space,      /*!< in: space */
     page_no_t hdr_page_no, /*!< in: header page number */
     page_no_t page_no,     /*!< in: page number to free: must not be the
@@ -1024,8 +1022,6 @@ static page_no_t trx_undo_free_page(
   page_t *header_page;
   page_t *undo_page;
   fil_addr_t last_addr;
-  trx_rsegf_t *rseg_header;
-  ulint hist_size;
 
   ut_a(hdr_page_no != page_no);
   ut_ad(mutex_own(&(rseg->mutex)));
@@ -1049,17 +1045,74 @@ static page_no_t trx_undo_free_page(
 
   rseg->decr_curr_size();
 
-  if (in_history) {
-    rseg_header = trx_rsegf_get(space, rseg->page_no, rseg->page_size, mtr);
-
-    hist_size =
-        mtr_read_ulint(rseg_header + TRX_RSEG_HISTORY_SIZE, MLOG_4BYTES, mtr);
-    ut_ad(hist_size > 0);
-    mlog_write_ulint(rseg_header + TRX_RSEG_HISTORY_SIZE, hist_size - 1,
-                     MLOG_4BYTES, mtr);
-  }
-
   return (last_addr.page);
+}
+
+static inline page_no_t trx_undo_free_page_in_history(
+    trx_rseg_t *rseg,      /*!< in: rollback segment */
+    space_id_t space,      /*!< in: space */
+    page_no_t hdr_page_no, /*!< in: header page number */
+    page_no_t page_no,     /*!< in: page number to free: must not be the
+                           header page */
+    mtr_t *mtr)            /*!< in: mtr which does not have a latch to any
+                           undo log page; the caller must have reserved
+                           the rollback segment mutex */
+{
+  trx_rsegf_t *rseg_header;
+  ulint hist_size;
+
+  ut_a(hdr_page_no != page_no);
+  ut_ad(mutex_own(&(rseg->mutex)));
+
+  page_no_t remain_last =
+      trx_undo_free_page_low(rseg, space, hdr_page_no, page_no, mtr);
+
+  rseg_header = trx_rsegf_get(space, rseg->page_no, rseg->page_size, mtr);
+
+  hist_size =
+      mtr_read_ulint(rseg_header + TRX_RSEG_HISTORY_SIZE, MLOG_4BYTES, mtr);
+  ut_ad(hist_size > 0);
+  mlog_write_ulint(rseg_header + TRX_RSEG_HISTORY_SIZE, hist_size - 1,
+                   MLOG_4BYTES, mtr);
+
+  return remain_last;
+}
+
+/** Free the page that is in semi-purge list. */
+static inline page_no_t trx_undo_free_page_in_sp(
+    trx_rseg_t *rseg,      /*!< in: rollback segment */
+    space_id_t space,      /*!< in: space */
+    page_no_t hdr_page_no, /*!< in: header page number */
+    page_no_t page_no,     /*!< in: page number to free: must not be the
+                           header page */
+    mtr_t *mtr)            /*!< in: mtr which does not have a latch to any
+                           undo log page; the caller must have reserved
+                           the rollback segment mutex */
+{
+  trx_rsegf_t *rseg_header;
+  ulint hist_size;
+
+  ut_a(hdr_page_no != page_no);
+  ut_ad(mutex_own(&(rseg->mutex)));
+
+  page_no_t remain_last =
+      trx_undo_free_page_low(rseg, space, hdr_page_no, page_no, mtr);
+
+  rseg_header = trx_rsegf_get(space, rseg->page_no, rseg->page_size, mtr);
+
+#ifdef UNIV_DEBUG
+  page_t *undo_hdr_page = trx_undo_page_get(
+      page_id_t(rseg->space_id, hdr_page_no), rseg->page_size, mtr);
+  ut_ad(lizard::trx_useg_is_2pp(undo_hdr_page, rseg->page_size, mtr));
+#endif /* UNIV_DEBUG */
+
+  hist_size = mtr_read_ulint(rseg_header + TRX_RSEG_SEMI_PURGE_LIST_SIZE,
+                             MLOG_4BYTES, mtr);
+  ut_ad(hist_size > 0);
+  mlog_write_ulint(rseg_header + TRX_RSEG_SEMI_PURGE_LIST_SIZE, hist_size - 1,
+                   MLOG_4BYTES, mtr);
+
+  return remain_last;
 }
 
 void trx_undo_free_last_page_func(IF_DEBUG(const trx_t *trx, ) trx_undo_t *undo,
@@ -1068,9 +1121,8 @@ void trx_undo_free_last_page_func(IF_DEBUG(const trx_t *trx, ) trx_undo_t *undo,
   ut_ad(undo->hdr_page_no != undo->last_page_no);
   ut_ad(undo->size > 0);
 
-  undo->last_page_no =
-      trx_undo_free_page(undo->rseg, false, undo->space, undo->hdr_page_no,
-                         undo->last_page_no, mtr);
+  undo->last_page_no = trx_undo_free_page_low(
+      undo->rseg, undo->space, undo->hdr_page_no, undo->last_page_no, mtr);
 
   undo->size--;
 }
@@ -1208,9 +1260,12 @@ freed, but emptied, if all the records there are below the limit.
 @param[in]      hdr_page_no     header page number
 @param[in]      hdr_offset      header offset on the page
 @param[in]      limit           first undo number to preserve
+@param[in]      in_history      true if it's in the history list,
+                                false if it's in the sp list
 (everything below the limit will be truncated) */
 void trx_undo_truncate_start(trx_rseg_t *rseg, page_no_t hdr_page_no,
-                             ulint hdr_offset, undo_no_t limit) {
+                             ulint hdr_offset, undo_no_t limit,
+                             bool in_history) {
   page_t *undo_page;
   trx_undo_rec_t *rec;
   trx_undo_rec_t *last_rec;
@@ -1254,7 +1309,13 @@ loop:
     trx_undo_empty_header_page(rseg->space_id, rseg->page_size, hdr_page_no,
                                hdr_offset, &mtr);
   } else {
-    trx_undo_free_page(rseg, true, rseg->space_id, hdr_page_no, page_no, &mtr);
+    if (in_history) {
+      trx_undo_free_page_in_history(rseg, rseg->space_id, hdr_page_no, page_no,
+                                    &mtr);
+    } else {
+      trx_undo_free_page_in_sp(rseg, rseg->space_id, hdr_page_no, page_no,
+                               &mtr);
+    }
   }
 
   mtr.commit();
@@ -2436,6 +2497,11 @@ bool trx_undo_truncate_tablespace(undo::Tablespace *marked_space) {
     rseg->last_del_marks = false;
     rseg->last_ommt.set_null();
     rseg->last_free_ommt.set_null();
+
+    rseg->last_erase_page_no = FIL_NULL;
+    rseg->last_erase_offset = 0;
+    rseg->last_erase_del_marks = false;
+    rseg->last_erase_ommt.set_null();
   }
 
   marked_rsegs->x_unlock();

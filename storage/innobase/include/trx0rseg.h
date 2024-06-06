@@ -127,12 +127,16 @@ single-threaded startup.  If we find existing rseg slots in TRX_SYS page
 that reference undo tablespaces and have active undo logs, then quit.
 They require an upgrade of undo tablespaces and that cannot happen with
 active undo logs.
-@param[in]      purge_queue     queue of rsegs to purge */
-void trx_rsegs_init(lizard::purge_heap_t *purge_queue);
+@param[in]      purge_queue     queue of rsegs to purge
+@param[in]      erase_heap      heap of rsegs to erase */
+void trx_rsegs_init(lizard::purge_heap_t *purge_queue,
+                    lizard::erase_heap_t *erase_heap);
 
 /** Initialize rollback segments in parallel
-@param[in]      purge_queue     queue of rsegs to purge */
-void trx_rsegs_parallel_init(lizard::purge_heap_t *purge_queue);
+@param[in]      purge_queue     queue of rsegs to purge
+@param[in]      erase_heap      heap of rsegs to erase */
+void trx_rsegs_parallel_init(lizard::purge_heap_t *purge_queue,
+                             lizard::erase_heap_t *erase_heap);
 
 /** Create and initialize a rollback segment object.  Some of
 the values for the fields are read from the segment header page.
@@ -143,13 +147,14 @@ The caller must insert it into the correct list.
 @param[in]	page_size	page size
 @param[in]      gtid_trx_scn	Trx scn up to which GTID is persisted
 @param[in,out]	purge_heap	rseg queue
+@param[in,out]  erase_heap  heap of rsegs to erase
 @param[in,out]	mtr		mini-transaction
 @return own: rollback segment object */
 trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
                                 page_no_t page_no, const page_size_t &page_size,
                                 scn_t gtid_trx_scn,
                                 lizard::purge_heap_t *purge_heap,
-                                mtr_t *mtr);
+                                lizard::erase_heap_t *erase_heap, mtr_t *mtr);
 
 /** Create a rollback segment in the given tablespace. This could be either
 the system tablespace, the temporary tablespace, or an undo tablespace.

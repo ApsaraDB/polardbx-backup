@@ -1594,7 +1594,8 @@ dberr_t srv_start(bool create_new_db IF_XB(, lsn_t to_lsn)) {
 
   dberr_t err;
   mtr_t mtr;
-  lizard::purge_heap_t *purge_heap;
+  lizard::purge_heap_t *purge_heap = nullptr;
+  lizard::erase_heap_t *erase_heap = nullptr;
 
   assert(srv_dict_metadata == nullptr);
   /* Reset the start state. */
@@ -2026,14 +2027,14 @@ dberr_t srv_start(bool create_new_db IF_XB(, lsn_t to_lsn)) {
 
     lizard::trx_erase_sys_mem_create();
 
-    purge_heap = trx_sys_init_at_db_start();
+    std::tie(purge_heap, erase_heap) = trx_sys_init_at_db_start();
 
     /* The purge system needs to create the purge view and
     therefore requires that the trx_sys is inited. */
 
     trx_purge_sys_initialize(srv_threads.m_purge_workers_n, purge_heap);
 
-    lizard::trx_erase_sys_initialize(srv_threads.m_purge_workers_n);
+    lizard::trx_erase_sys_initialize(srv_threads.m_purge_workers_n, erase_heap);
 
     lizard::undo_retention_init();
 
@@ -2463,7 +2464,7 @@ dberr_t srv_start(bool create_new_db IF_XB(, lsn_t to_lsn)) {
 
     /* The purge system needs to create the purge view and
     therefore requires that the trx_sys is inited. */
-    purge_heap = trx_sys_init_at_db_start();
+    std::tie(purge_heap, erase_heap) = trx_sys_init_at_db_start();
 
     if (srv_is_upgrade_mode) {
       if (!purge_heap->empty()) {
@@ -2487,7 +2488,7 @@ dberr_t srv_start(bool create_new_db IF_XB(, lsn_t to_lsn)) {
     initialized in trx_sys_init_at_db_start(). */
     trx_purge_sys_initialize(srv_threads.m_purge_workers_n, purge_heap);
 
-    lizard::trx_erase_sys_initialize(srv_threads.m_purge_workers_n);
+    lizard::trx_erase_sys_initialize(srv_threads.m_purge_workers_n, erase_heap);
 
     lizard::undo_retention_init();
   }

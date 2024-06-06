@@ -356,7 +356,7 @@ struct txn_undo_ptr_t {
 
   * TXN_STATE_ERASED: At the moment that the erase sys start erasing it. Notes
   that: Access to the binding normal UNDOs (insert undo / update undo) is not
-  safe for 2pc-purge tables from then on.
+  safe for two phase purge tables from then on.
 
   * TXN_STATE_REUSE: At the moment that the TXN headers are reused by another
   transactions. These TXN headers are reinited as TXN_STATE_ACTIVE, but for
@@ -400,8 +400,8 @@ struct txn_undo_hdr_t {
   ulint ext_storage;
   /** flags of the TXN. For example: 0x01 means rollback. */
   ulint tags_1;
-  /** true if the TXN is 2pc purge. */
-  bool is_2pc_purge;
+  /** true if the TXN is two phase purge. */
+  bool is_2pp;
   /** Return true if the transaction was eventually rolled back. */
   bool is_rollback() const;
   /** Return true if the txn has new_flags. */
@@ -557,11 +557,65 @@ typedef std::priority_queue<
     TxnUndoRsegs>
     purge_heap_t;
 
+/**
+  The element of minimum heap for the erase sys.
+*/
+class UpdateUndoRseg {
+ public:
+  explicit UpdateUndoRseg(scn_t scn, trx_rseg_t *rseg)
+      : m_scn(scn), m_rseg(rseg) {
+    ut_ad(!m_rseg || !m_rseg->is_txn);
+  }
+
+  /** Default constructor */
+  UpdateUndoRseg() : UpdateUndoRseg(0, nullptr) {}
+
+  void set_scn(scn_t scn) { m_scn = scn; }
+
+  scn_t get_scn() const { return m_scn; }
+
+  void set_rseg(trx_rseg_t *rseg) { m_rseg = rseg; }
+
+  trx_rseg_t *get_rseg() const { return m_rseg; }
+
+  /** Compare two UpdateUndoRseg based on scn.
+  @param lhs first element to compare
+  @param rhs second element to compare
+  @return true if elem1 > elem2 else false.*/
+  bool operator()(const UpdateUndoRseg &lhs, const UpdateUndoRseg &rhs) {
+    return (lhs.m_scn > rhs.m_scn);
+  }
+
+ private:
+  scn_t m_scn;
+
+  /** Rollback segments of update undo. */
+  trx_rseg_t *m_rseg;
+};
+
+/**
+  Use priority_queue as the minimum heap structure
+  which is order by scn number */
+typedef std::priority_queue<
+    UpdateUndoRseg, std::vector<UpdateUndoRseg, ut::allocator<UpdateUndoRseg>>,
+    UpdateUndoRseg>
+    erase_heap_t;
+
 } /* namespace lizard */
 
 struct txn_space_rseg_slot_t {
   ulint space_slot;
   ulint rseg_slot;
+};
+
+struct txn_cursor_t {
+  /** trx_id that is used to check if the TXN is valid. */
+  trx_id_t trx_id;
+
+  /** TXN address */
+  slot_addr_t txn_addr;
+
+  txn_cursor_t() : trx_id(0), txn_addr() {}
 };
 
 #endif  // lizard0undo0types_h

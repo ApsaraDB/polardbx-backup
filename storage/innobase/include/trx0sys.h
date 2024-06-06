@@ -75,8 +75,9 @@ static inline bool trx_sys_hdr_page(const page_id_t &page_id);
 
 /** Creates and initializes the central memory structures for the transaction
  system. This is called when the database is started.
- @return min binary heap of rsegs to purge */
-lizard::purge_heap_t *trx_sys_init_at_db_start(void);
+ @return pair of min binary heaps of rsegs to purge / erase */
+std::pair<lizard::purge_heap_t *, lizard::erase_heap_t *>
+trx_sys_init_at_db_start(void);
 /** Creates the trx_sys instance and initializes purge_queue and mutex. */
 void trx_sys_create(void);
 /** Creates and initializes the transaction system at the database creation. */
