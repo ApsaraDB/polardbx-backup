@@ -325,8 +325,7 @@ static trx_rseg_t *trx_rseg_physical_initialize(trx_rseg_t *rseg,
     lizard::gcs->txn_undo_log_free_list_len += free_list_len;
 
     fil_addr_t node_addr;
-    rseg->last_free_ommt =
-        lizard::txn_free_get_last_log(rseg, node_addr, mtr, nullptr);
+    rseg->last_free_ommt = lizard::txn_free_get_last_log(rseg, node_addr);
   }
 
   /** Lizard: Init txn undo log hash table */
@@ -478,8 +477,7 @@ trx_rseg_t *trx_rseg_mem_create(ulint id, space_id_t space_id,
     lizard::gcs->txn_undo_log_free_list_len.fetch_add(free_list_len);
 
     fil_addr_t node_addr;
-    rseg->last_free_ommt =
-        lizard::txn_free_get_last_log(rseg, node_addr, mtr, nullptr);
+    rseg->last_free_ommt = lizard::txn_free_get_last_log(rseg, node_addr);
   }
 
   auto len = flst_get_len(rseg_header + TRX_RSEG_HISTORY);

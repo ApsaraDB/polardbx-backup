@@ -1173,6 +1173,16 @@ extern commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
                                            mtr_t *mtr, rseg_stat_t *stat);
 
 /**
+  Get newest log header in last (oldest) log segment from free list .
+  @params[in]   rseg            update undo rollback segment
+  @params[out]  log header address of last log
+
+  @retval	commit mark of last log header
+*/
+commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
+                                    rseg_stat_t *stat = nullptr);
+
+/**
   Check if the TXN is purged or erased. The latch of the TXN page will be held
   if precheck failed.
   @param[in]      roll_ptr        roll pointer to record

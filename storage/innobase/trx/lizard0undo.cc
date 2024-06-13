@@ -3695,8 +3695,8 @@ static commit_mark_t trx_purge_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
 
   @retval	commit mark of last log header
 */
-static commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
-                                           rseg_stat_t *stat = nullptr) {
+commit_mark_t txn_free_get_last_log(trx_rseg_t *rseg, fil_addr_t &addr,
+                                    rseg_stat_t *stat) {
   mtr_t mtr;
   commit_mark_t cmmt;
 
