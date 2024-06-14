@@ -36,7 +36,7 @@ INSERT INTO pxb_2710 VALUES (NULL);
 EOF
 innodb_wait_for_flush_all
 
-xtrabackup --backup --estimate-memory --target-dir=${backupdir} --debug-sync=xtrabackup_pause_after_redo_catchup &
+xtrabackup --backup --estimate-memory --target-dir=${backupdir} --debug-sync=xtrabackup_pause_after_redo_catchup --rds-disable-estimate-memory=0 &
 job_pid=$!
 wait_for_xb_to_suspend $pid_file
 xb_pid=`cat $pid_file`
@@ -107,7 +107,7 @@ then
   vlog "Skipping full memory workload test as 99% of free memory is lower than required by pxb"
 else
   vlog "Preparing backup with --use-free-memory-pct=99"
-  xtrabackup --prepare --use-free-memory-pct=99 --target-dir=${backupdir} 2> ${logfile}
+  xtrabackup --prepare --use-free-memory-pct=99 --rds-disable-estimate-memory=0 --target-dir=${backupdir} 2> ${logfile}
 
   if grep -q "Required memory will exceed free memory configuration" ${logfile}
   then
@@ -118,7 +118,7 @@ else
   then
     die "Xtrabackup should have adjusted frames to ${redo_frames}."
   fi
-  xtrabackup --copy-back --target-dir=${backupdir}
+  xtrabackup --copy-back --target-dir=${backupdir} --rds-disable-estimate-memory=0
   start_server
   run_cmd verify_db_state test
   stop_server
@@ -133,13 +133,13 @@ then
 fi
 
 vlog "Preparing backup with --use-free-memory-pct=1"
-xtrabackup --prepare --use-free-memory-pct=1 --target-dir=${backupdir2} 2> ${logfile2}
+xtrabackup --prepare --use-free-memory-pct=1 --rds-disable-estimate-memory=0 --target-dir=${backupdir2} 2> ${logfile2}
 
 if ! grep -q "Required memory will exceed Free memory configuration" ${logfile2}
 then
     die "Xtrabackup should have exceed free memory."
 fi
-xtrabackup --copy-back --target-dir=${backupdir2}
+xtrabackup --copy-back --target-dir=${backupdir2} --rds-disable-estimate-memory=0
 start_server
 run_cmd verify_db_state test
 stop_server
@@ -159,7 +159,7 @@ trap "kill -SIGKILL $insert_pid" EXIT
 
 vlog "Test 1 - Default to off"
 mkdir ${backupdir}
-xtrabackup --backup --target-dir=${backupdir}
+xtrabackup --backup --target-dir=${backupdir} --rds-disable-estimate-memory=0
 
 if ! grep -q "redo_memory = 0" ${backupdir}/xtrabackup_checkpoints
 then
@@ -169,7 +169,7 @@ fi
 vlog "Test 2 - Setting --estimate-memory to off"
 rm -rf ${backupdir}
 mkdir ${backupdir}
-xtrabackup --backup --estimate-memory=OFF --target-dir=${backupdir}
+xtrabackup --backup --estimate-memory=OFF --target-dir=${backupdir} --rds-disable-estimate-memory=0
 
 if ! grep -q "redo_memory = 0" ${backupdir}/xtrabackup_checkpoints
 then
@@ -180,7 +180,7 @@ fi
 vlog "Test 3 - Setting --estimate-memory to on"
 rm -rf ${backupdir}
 mkdir ${backupdir}
-xtrabackup --backup --estimate-memory=ON --target-dir=${backupdir}
+xtrabackup --backup --estimate-memory=ON --target-dir=${backupdir} --rds-disable-estimate-memory=0
 
 if ! egrep -q 'redo_memory = [1-9][0-9]*' ${backupdir}/xtrabackup_checkpoints
 then

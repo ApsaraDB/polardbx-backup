@@ -8,6 +8,8 @@
 
 require_debug_pxb_version
 
+skip_test "PolarDB-X always hold FTWRL when --backup"
+
 start_server
 
 function backup_local() {

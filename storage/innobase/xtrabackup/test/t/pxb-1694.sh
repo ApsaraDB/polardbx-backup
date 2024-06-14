@@ -36,8 +36,8 @@ done ) &
 
 for i in {1..3} ; do
   rm -rf $topdir/backup
-  xtrabackup --backup --target-dir=$topdir/backup
-  xtrabackup --prepare --target-dir=$topdir/backup
+  xtrabackup --backup --target-dir=$topdir/backup --lock-ddl
+  xtrabackup --prepare --target-dir=$topdir/backup --lock-ddl
 done
 
 stop_server

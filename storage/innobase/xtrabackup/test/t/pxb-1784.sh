@@ -13,7 +13,7 @@ while true ; do
     mysql -e "ALTER UNDO TABLESPACE undo1 SET ACTIVE"
 done &
 
-xtrabackup --backup --target-dir=$topdir/backup
+xtrabackup --backup --target-dir=$topdir/backup --lock-ddl
 
 mysql -e "CREATE UNDO TABLESPACE undo2 ADD DATAFILE 'undo2.ibu'"
 
@@ -22,7 +22,7 @@ while true ; do
     mysql -e "ALTER UNDO TABLESPACE undo2 SET ACTIVE"
 done &
 
-xtrabackup --backup --incremental-basedir=$topdir/backup --target-dir=$topdir/inc
+xtrabackup --backup --incremental-basedir=$topdir/backup --target-dir=$topdir/inc --lock-ddl
 
 xtrabackup --prepare --apply-log-only --target-dir=$topdir/backup
 xtrabackup --prepare --target-dir=$topdir/backup --incremental-dir=$topdir/inc

@@ -5,6 +5,8 @@
 # just test that the percona-version-check file is created
 ################################################################################
 
+skip_test "PolarDB-X never use --version-check"
+
 ( $XB_BIN --help 2>/dev/null | grep -q -- --no-version-check ) || \
     skip_test "Requres version check"
 

@@ -64,7 +64,7 @@ KEY_BLOCK_SIZE=$page_size" incremental_sample
 
   vlog "Starting backup"
 
-  xtrabackup --datadir=$mysql_datadir --backup $ib_full_backup_extra_args --target-dir=$topdir/full
+  xtrabackup --datadir=$mysql_datadir --backup $ib_full_backup_extra_args --target-dir=$topdir/full --lock-ddl=1
 
   vlog "Full backup done"
 
@@ -121,7 +121,7 @@ incremental_sample`
   # Incremental backup
   xtrabackup --datadir=$mysql_datadir --backup $ib_inc_extra_args  \
       --target-dir=$topdir/delta --incremental-basedir=$topdir/full \
-      $suspend_arg &
+      $suspend_arg --lock-ddl=1 &
 
   xb_pid=$!
 

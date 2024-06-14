@@ -1888,8 +1888,6 @@ static byte *recv_parse_or_apply_log_rec_body(
             full_scan_tables.insert(space_id);
           }
         }
-        /** else the index is flushed to disk before
-        backup started hence no error */
       }
 #endif /* XTRABACKUP */
       if (end_ptr < ptr + 8) {

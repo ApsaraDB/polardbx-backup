@@ -9,7 +9,7 @@ if [ -z "$err" ] ; then
     die "xtrabackup did not report error (--myoption)"
 fi
 
-err=$(${XB_BIN} ${XB_ARGS} --backup --compress --copmress-threads=4 --target-dir=$topdir/backup 2>&1 | grep "unknown variable")
+err=$(${XB_BIN} ${XB_ARGS} --backup --compress --copmress-threads=4 --target-dir=$topdir/backup 2>&1 | grep "unknown option")
 if [ -z "$err" ] ; then
     die "xtrabackup did not report error (--copmress-threads)"
 fi

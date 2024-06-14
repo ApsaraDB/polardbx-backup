@@ -53,7 +53,7 @@ done
 vlog "Case#1 backup with  orphan ibd in datadir "
 cp inc/skip_orpah_ibds/FTS_0000000000000123_BEING_DELETED.ibd  $mysql_datadir/test
 
-run_cmd xtrabackup --backup --target-dir=${topdir}/backup 2>&1 | tee $topdir/pxb.log
+run_cmd xtrabackup --backup --lock-ddl=1 --target-dir=${topdir}/backup 2>&1 | tee $topdir/pxb.log
 
 record_db_state test
 
