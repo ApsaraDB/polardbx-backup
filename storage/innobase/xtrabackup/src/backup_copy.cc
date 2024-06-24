@@ -1472,6 +1472,13 @@ bool backup_start(Backup_context &context) {
                    false);
   }
 
+  /** Lizard: Write binlog info before getting stopped LSN so that a safe recover
+  index is always acquired. */
+  if (server_flavor == FLAVOR_X_CLUSTER &&
+      !write_binlog_info(mysql_connection)) {
+    return false;
+  }
+
   log_status_get(mysql_connection);
 
   /* Wait until we have checkpoint LSN greater than the page tracking start LSN.
@@ -1526,7 +1533,8 @@ bool backup_start(Backup_context &context) {
     }
   }
 
-  if (!write_binlog_info(mysql_connection)) {
+  if (server_flavor != FLAVOR_X_CLUSTER &&
+      !write_binlog_info(mysql_connection)) {
     return false;
   }
 
