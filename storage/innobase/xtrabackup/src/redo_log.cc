@@ -501,18 +501,13 @@ ssize_t Redo_Log_Reader::scan_log_recs_8030(byte *buf, bool is_last,
     auto checksum_is_ok = log_block_checksum_is_ok(log_block);
 
     if (block_header.m_hdr_no != expected_hdr_no && checksum_is_ok) {
-      /* old log block, do nothing */
-      if (block_header.m_hdr_no < expected_hdr_no) {
-        *finished = true;
-        break;
-      }
-      xb::error() << "log block numbers mismatch:";
-      xb::error() << "expected log block no. " << expected_hdr_no
-                  << ", but got no. " << block_header.m_hdr_no
-                  << " from the log file.";
-
-      return (-1);
-
+      /* The log block is considered old or has wrapped around.
+       * With the redo log size now being dynamically adjustable, it is
+       * challenging to distinguish between blocks that are genuinely old and
+       * those that have wrapped around. Therefore, we treat both cases as
+       * finished. */
+      *finished = true;
+      break;
     } else if (!checksum_is_ok) {
       /* Garbage or an incompletely written log block */
       xb::warn() << "Log block checksum mismatch (block no "
