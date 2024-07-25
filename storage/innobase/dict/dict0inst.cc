@@ -286,6 +286,25 @@ bool Instant_ddl_impl<Table>::commit_instant_ddl() {
       dd_set_autoinc(m_new_dd_tab->table().se_private_data(), *m_autoinc);
     }
   }
+#ifdef UNIV_DEBUG
+  /* Lizard-4.0: Validate IFT option of dd_tab stays stable, no matter what
+   * kind of instant ddl. */
+  for (auto dd_index : *m_new_dd_tab->indexes()) {
+    /* Don't assume the index orders are the same, even on
+    CREATE TABLE. This could be called from TRUNCATE path,
+    which would do some adjustment on FULLTEXT index, thus
+    the out-of-sync order */
+    const dict_index_t *index = dd_find_index(m_dict_table, dd_index);
+    ut_ad(index != nullptr);
+    auto old_dd_index = m_old_dd_tab->indexes().begin();
+    for (; (*old_dd_index)->name() != dd_index->name(); ++old_dd_index)
+      ;
+    const dd::Properties &old_options = (*old_dd_index)->options();
+    const dd::Properties &new_options = dd_index->options();
+    ut_ad(!lizard::validate_dd_index_format_match(old_options, index));
+    ut_ad(!lizard::validate_dd_index_format_match(new_options, index));
+  }
+#endif
   return false;
 }
 

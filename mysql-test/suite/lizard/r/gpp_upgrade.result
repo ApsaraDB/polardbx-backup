@@ -1,0 +1,71 @@
+###########################################################################
+# Stop the default mtr server
+###########################################################################
+# Stop DB server which was created by MTR default
+###########################################################################
+# Setup the 8.0.32 data directory
+###########################################################################
+# Copy the remote tablespace & DB zip files from suite location to working location.
+# Check that the file exists in the working folder.
+# Unzip the zip file.
+###########################################################################
+# Restart the 8.0.32 data directory
+###########################################################################
+# restart: --datadir=DATADIR --opt_index_format_gpp_enabled=1 --innodb_lizard_stat_enabled=1 --log_bin=mysql-binlog
+###########################################################################
+# Test upgrade
+###########################################################################
+include/assert.inc [The options for gpp_upgrade.t1.b should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t1.b should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_upgrade.t1.c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t1.c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_upgrade.t1.fts should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t1.fts should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_upgrade.t1.spatial_idx should match the expected IFT=0 condition]
+SET opt_index_format_gpp_enabled=true;
+CREATE INDEX b_c ON gpp_upgrade.t1(b,c);
+include/assert.inc [The options for gpp_upgrade.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_upgrade.t2.b should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t2.b should match the expected IFT=0 condition]
+insert into gpp_upgrade.t2 values (28,28,28,'28282828');
+include/assert.inc [The options for gpp_upgrade.t2.b should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t2.b should match the expected IFT=0 condition]
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_upgrade.t2 TRUNCATE PARTITION p2;
+insert into gpp_upgrade.t2 values (9,9,9,'99999');
+include/assert.inc [The options for gpp_upgrade.t2.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t2.b should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_upgrade.t2.b should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_upgrade.t2.b should match the expected IFT=0 condition]
+SELECT * FROM information_schema.INNODB_INDEX_STATUS where table_name like 't2%';
+SCHEMA_NAME	TABLE_NAME	INDEX_NAME	OPTIONS
+gpp_upgrade	t2	PRIMARY	flags=0;
+gpp_upgrade	t2	b	flags=0;
+gpp_upgrade	t2_p0	PRIMARY	NULL
+gpp_upgrade	t2_p0	b	NULL
+gpp_upgrade	t2_p1	PRIMARY	NULL
+gpp_upgrade	t2_p1	b	NULL
+gpp_upgrade	t2_p2	PRIMARY	IFT=0;
+gpp_upgrade	t2_p2	b	IFT=1;
+gpp_upgrade	t2_p3	PRIMARY	NULL
+gpp_upgrade	t2_p3	b	NULL
+SELECT * FROM information_schema.INNODB_INDEX_STATUS where table_name like 't1%';
+SCHEMA_NAME	TABLE_NAME	INDEX_NAME	OPTIONS
+gpp_upgrade	t1	PRIMARY	IFT=0;flags=0;
+gpp_upgrade	t1	c	IFT=0;flags=0;
+gpp_upgrade	t1	b	IFT=0;flags=0;
+gpp_upgrade	t1	spatial_idx	IFT=0;flags=0;
+gpp_upgrade	t1	b_c	IFT=1;flags=0;
+gpp_upgrade	t1	fts	IFT=0;flags=0;
+gpp_upgrade	t1	FTS_DOC_ID_INDEX	IFT=0;
+SELECT * FROM information_schema.INNODB_GPP_STATS;
+TABLE_NAME	INDEX_NAME	GPP_HIT	GPP_MISS
+gpp_upgrade/t1	b_c	0	0
+gpp_upgrade/t2#p#p2	b	0	0
+###########################################################################
+# CLEANUP
+###########################################################################
+# Shutdown server
+# Remove copied files
+# Restarting server to restore server state
+# restart

@@ -90,7 +90,7 @@ execute actual insert.
 @return error code */
 [[nodiscard]] dberr_t row_ins_clust_index_entry_low(
     uint32_t flags, ulint mode, dict_index_t *index, ulint n_uniq,
-    dtuple_t *entry, que_thr_t *thr, bool dup_chk_only);
+    dtuple_t *entry, gpp_no_t *gpp_no, que_thr_t *thr, bool dup_chk_only);
 
 /** Tries to insert an entry into a secondary index. If a record with exactly
 the same fields is found, the other record is necessarily marked deleted.
@@ -135,6 +135,7 @@ dberr_t row_ins_index_entry_set_vals(const dict_index_t *index, dtuple_t *entry,
 [[nodiscard]] dberr_t row_ins_clust_index_entry(
     dict_index_t *index, /*!< in: clustered index */
     dtuple_t *entry,     /*!< in/out: index entry to insert */
+    gpp_no_t *gpp_no,    /*!< in/out: gpp no of the rec */
     que_thr_t *thr,      /*!< in: query thread */
     bool dup_chk_only);
 /*!< in: if true, just do duplicate check
@@ -189,6 +190,9 @@ struct ins_node_t {
   uint32_t ins_multi_val_pos;
 
   ulint magic_n;
+
+  byte *gpp_no_buf;
+  gpp_no_t gpp_no;
 };
 
 constexpr uint32_t INS_NODE_MAGIC_N = 15849075;

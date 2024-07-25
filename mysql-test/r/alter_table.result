@@ -2513,7 +2513,7 @@ HANDLER t1 CLOSE;
 connection con2;
 # Reaping ALTER TABLE IMPORT
 # It should fail as no tablespace was copied after DISCARD.
-ERROR HY000: Tablespace is missing for table `test`.`t1`.
+ERROR HY000: Config file is missing for importing table t1
 connection default;
 DROP TABLE t1;
 #
@@ -2562,7 +2562,7 @@ HANDLER t1 CLOSE;
 connection con2;
 # Reaping ALTER TABLE IMPORT
 # It should fail as no tablespace was copied after DISCARD.
-ERROR HY000: Tablespace is missing for table `test`.`t1`.
+ERROR HY000: Config file is missing for importing table t1
 UNLOCK TABLES;
 connection default;
 DROP TABLE t1;

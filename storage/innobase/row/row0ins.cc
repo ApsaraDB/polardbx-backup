@@ -45,6 +45,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fts0types.h"
 #include "gis0geo.h"
 #include "ha_prototypes.h"
+#include "lizard0btr0cur.h"
 #include "lob0lob.h"
 #include "lock0lock.h"
 #include "log0chkp.h"
@@ -68,6 +69,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0dict.h"
 #include "lizard0page.h"
 
+#include "lizard0data0data.h"
 /*************************************************************************
 IMPORTANT NOTE: Any operation that generates redo MUST check that there
 is enough space in the redo log before for that operation. This is
@@ -107,6 +109,8 @@ ins_node_t *ins_node_create(
   node->magic_n = INS_NODE_MAGIC_N;
 
   node->ins_multi_val_pos = 0;
+
+  node->gpp_no = 0;
 
   return (node);
 }
@@ -215,6 +219,8 @@ void ins_node_set_new_row(
 
   /* Lizard: Allocate buffers for lizard SCN and UBA fields */
   lizard::ins_alloc_lizard_fields(node);
+
+  lizard::ins_alloc_gpp_field(node);
 
   /* As we allocated a new trx id buf, the trx id should be written
   there again: */
@@ -2353,13 +2359,14 @@ static void row_ins_temp_prebuilt_tree_modified(dict_table_t *table) {
 
 dberr_t row_ins_clust_index_entry_low(uint32_t flags, ulint mode,
                                       dict_index_t *index, ulint n_uniq,
-                                      dtuple_t *entry, que_thr_t *thr,
-                                      bool dup_chk_only) {
+                                      dtuple_t *entry, gpp_no_t *gpp_no,
+                                      que_thr_t *thr, bool dup_chk_only) {
   btr_pcur_t pcur;
   btr_cur_t *cursor;
   dberr_t err = DB_SUCCESS;
   big_rec_t *big_rec = nullptr;
   mtr_t mtr;
+  page_no_t rec_page_no = FIL_NULL;
   mem_heap_t *offsets_heap = nullptr;
   ulint offsets_[REC_OFFS_NORMAL_SIZE];
   ulint *offsets = offsets_;
@@ -2420,6 +2427,7 @@ dberr_t row_ins_clust_index_entry_low(uint32_t flags, ulint mode,
   pcur.open(index, 0, entry, PAGE_CUR_LE, mode, &mtr, UT_LOCATION_HERE);
   cursor = pcur.get_btr_cur();
   cursor->thr = thr;
+  rec_page_no = btr_cur_get_block(cursor)->get_page_no();
 
   ut_ad(!index->table->is_intrinsic() ||
         cursor->page_cur.block->made_dirty_with_no_latch);
@@ -2525,6 +2533,7 @@ dberr_t row_ins_clust_index_entry_low(uint32_t flags, ulint mode,
       row_log_table_insert(btr_cur_get_rec(cursor), entry, index, offsets);
     }
 
+    rec_page_no = btr_cur_get_block(cursor)->get_page_no();
     mtr.commit();
     mem_heap_free(entry_heap);
   } else {
@@ -2556,6 +2565,8 @@ dberr_t row_ins_clust_index_entry_low(uint32_t flags, ulint mode,
       }
     }
 
+    rec_page_no = lizard::btr_cur_get_page_no(cursor);
+
     if (big_rec != nullptr) {
       mtr.commit();
 
@@ -2580,6 +2591,10 @@ dberr_t row_ins_clust_index_entry_low(uint32_t flags, ulint mode,
   }
 
 func_exit:
+  if (err == DB_SUCCESS && gpp_no) {
+    *gpp_no = rec_page_no;
+  }
+
   if (offsets_heap != nullptr) {
     mem_heap_free(offsets_heap);
   }
@@ -2614,10 +2629,12 @@ used when data is sorted.
 @return error code */
 static dberr_t row_ins_sorted_clust_index_entry(ulint mode, dict_index_t *index,
                                                 dtuple_t *entry,
+                                                gpp_no_t *gpp_no,
                                                 que_thr_t *thr) {
   dberr_t err;
   mtr_t *mtr;
   const bool commit_mtr = mode == BTR_MODIFY_TREE;
+  page_no_t rec_page_no = FIL_NULL;
 
   mem_heap_t *offsets_heap = nullptr;
   ulint offsets_[REC_OFFS_NORMAL_SIZE];
@@ -2693,6 +2710,8 @@ static dberr_t row_ins_sorted_clust_index_entry(ulint mode, dict_index_t *index,
       }
     }
 
+    rec_page_no = lizard::btr_cur_get_page_no(&cursor);
+
     if (big_rec != nullptr) {
       /* If index involves big-record optimization is
       turned-off. */
@@ -2716,6 +2735,10 @@ static dberr_t row_ins_sorted_clust_index_entry(ulint mode, dict_index_t *index,
     }
 
     break;
+  }
+
+  if (err == DB_SUCCESS && gpp_no) {
+    *gpp_no = rec_page_no;
   }
 
   if (err != DB_SUCCESS) {
@@ -3076,6 +3099,7 @@ func_exit:
 dberr_t row_ins_clust_index_entry(
     dict_index_t *index, /*!< in: clustered index */
     dtuple_t *entry,     /*!< in/out: index entry to insert */
+    gpp_no_t *gpp_no,    /*!< in/out: gpp no of the rec */
     que_thr_t *thr,      /*!< in: query thread */
     bool dup_chk_only)
 /*!< in: if true, just do duplicate check
@@ -3121,10 +3145,11 @@ and return. don't execute actual insert. */
     if (!index->last_ins_cur) {
       dict_allocate_mem_intrinsic_cache(index);
     }
-    err = row_ins_sorted_clust_index_entry(BTR_MODIFY_LEAF, index, entry, thr);
+    err = row_ins_sorted_clust_index_entry(BTR_MODIFY_LEAF, index, entry,
+                                           gpp_no, thr);
   } else {
     err = row_ins_clust_index_entry_low(flags, BTR_MODIFY_LEAF, index, n_uniq,
-                                        entry, thr, dup_chk_only);
+                                        entry, gpp_no, thr, dup_chk_only);
   }
 
   DEBUG_SYNC(thr_get_trx(thr)->mysql_thd,
@@ -3146,10 +3171,11 @@ and return. don't execute actual insert. */
   }
 
   if (index->table->is_intrinsic() && dict_index_is_auto_gen_clust(index)) {
-    err = row_ins_sorted_clust_index_entry(BTR_MODIFY_TREE, index, entry, thr);
+    err = row_ins_sorted_clust_index_entry(BTR_MODIFY_TREE, index, entry,
+                                           gpp_no, thr);
   } else {
     err = row_ins_clust_index_entry_low(flags, BTR_MODIFY_TREE, index, n_uniq,
-                                        entry, thr, dup_chk_only);
+                                        entry, gpp_no, thr, dup_chk_only);
   }
 
   return err;
@@ -3280,6 +3306,10 @@ static dberr_t row_ins_sec_index_multi_value_entry(dict_index_t *index,
 
   for (dtuple_t *mv_entry = mv_entry_builder.begin(multi_val_pos);
        mv_entry != nullptr; mv_entry = mv_entry_builder.next()) {
+
+    /* Lizard-4.0: Assert entry of json multi-value index. */
+    lizard_row_sec_multi_value_assert_gpp_no(index, mv_entry);
+
     err = row_ins_sec_index_entry(index, mv_entry, thr, false);
     if (err != DB_SUCCESS) {
       multi_val_pos = mv_entry_builder.last_multi_value_position();
@@ -3308,7 +3338,8 @@ record.
 @param[in]      thr             query thread
 @return DB_SUCCESS, DB_LOCK_WAIT, DB_DUPLICATE_KEY, or some other error code */
 static dberr_t row_ins_index_entry(dict_index_t *index, dtuple_t *entry,
-                                   uint32_t &multi_val_pos, que_thr_t *thr) {
+                                   uint32_t &multi_val_pos, gpp_no_t *gpp_no,
+                                   que_thr_t *thr) {
   ut_ad(thr_get_trx(thr)->id != 0);
 
   DBUG_EXECUTE_IF("row_ins_index_entry_timeout", {
@@ -3317,7 +3348,7 @@ static dberr_t row_ins_index_entry(dict_index_t *index, dtuple_t *entry,
   });
 
   if (index->is_clustered()) {
-    return (row_ins_clust_index_entry(index, entry, thr, false));
+    return (row_ins_clust_index_entry(index, entry, gpp_no, thr, false));
   } else if (index->is_multi_value()) {
     return (
         row_ins_sec_index_multi_value_entry(index, entry, multi_val_pos, thr));
@@ -3388,7 +3419,11 @@ dberr_t row_ins_index_entry_set_vals(const dict_index_t *index, dtuple_t *entry,
       ut_ad(dtuple_get_n_fields(row) == index->table->get_n_cols());
       row_field = dtuple_get_nth_v_field(row, v_col->v_pos);
     } else {
-      row_field = dtuple_get_nth_field(row, ind_field->col->ind);
+      if (ind_field->col->ind == DATA_GPP_NO) {
+        row_field = lizard::dtuple_get_v_gfield(row);
+      } else {
+        row_field = dtuple_get_nth_field(row, ind_field->col->ind);
+      }
     }
 
     len = dfield_get_len(row_field);
@@ -3430,6 +3465,8 @@ dberr_t row_ins_index_entry_set_vals(const dict_index_t *index, dtuple_t *entry,
     }
   }
 
+  lizard::dtuple_set_data_v_gfield(entry, row);
+
   return (DB_SUCCESS);
 }
 
@@ -3459,7 +3496,12 @@ dberr_t row_ins_index_entry_set_vals(const dict_index_t *index, dtuple_t *entry,
   ut_ad(dtuple_check_typed(node->entry));
 
   err = row_ins_index_entry(node->index, node->entry, node->ins_multi_val_pos,
-                            thr);
+                            &node->gpp_no, thr);
+
+  if (err == DB_SUCCESS) {
+    lizard::row_ins_index_write_gpp_no(node, node->index, node->entry,
+                                       node->row);
+  }
 
   DEBUG_SYNC(thr_get_trx(thr)->mysql_thd, "after_row_ins_index_entry_step");
 

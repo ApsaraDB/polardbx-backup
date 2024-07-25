@@ -1377,7 +1377,8 @@ the metadata which would not result in failure
 template <typename Table>
 static void dd_commit_inplace_alter_table(
     const alter_table_old_info_t &old_info, dict_table_t *new_table,
-    const Table *old_dd_tab, Table *new_dd_tab);
+    const Table *old_dd_tab, Table *new_dd_tab,
+    const lizard::Ha_ddl_policy *ddl_policy);
 
 /** Update metadata in commit phase when the alter table does
 no change to the table
@@ -1632,7 +1633,8 @@ bool ha_innobase::commit_inplace_alter_table(TABLE *altered_table,
     }
 
     dd_commit_inplace_alter_table<dd::Table>(old_info, ctx->new_table,
-                                             old_dd_tab, new_dd_tab);
+                                             old_dd_tab, new_dd_tab,
+                                             ha_alter_info->ddl_policy);
     if (!ctx->need_rebuild()) {
       dd_commit_inplace_update_instant_meta(ctx->new_table, old_dd_tab,
                                             new_dd_tab);
@@ -2637,18 +2639,16 @@ static void innobase_create_index_def(const TABLE *altered_table,
   index_def->m_name = mem_heap_strdup(heap, key->name);
   index_def->m_rebuild = new_clustered;
 
+  ulint dd_key_num =
+      key_number + ((altered_table->s->primary_key == MAX_KEY) ? 1 : 0);
+  const auto *dd_index_auto =
+      (index_def->m_key_number != ULINT_UNDEFINED)
+          ? const_cast<const Table *>(new_dd_tab)->indexes()[dd_key_num]
+          : nullptr;
+  const dd::Index *dd_index = get_dd_index(dd_index_auto);
+
   /* If this is a spatial index, we need to fetch the SRID */
   if (key->flags & HA_SPATIAL) {
-    ulint dd_key_num =
-        key_number + ((altered_table->s->primary_key == MAX_KEY) ? 1 : 0);
-
-    const auto *dd_index_auto =
-        (index_def->m_key_number != ULINT_UNDEFINED)
-            ? const_cast<const Table *>(new_dd_tab)->indexes()[dd_key_num]
-            : nullptr;
-
-    const dd::Index *dd_index = get_dd_index(dd_index_auto);
-
     if (dd_index != nullptr) {
       ut_ad(dd_index->name() == key->name);
       /* Spatial index indexes on only one column */
@@ -4263,7 +4263,8 @@ the metadata which would not result in failure
 template <typename Table>
 static void dd_commit_inplace_alter_table(
     const alter_table_old_info_t &old_info, dict_table_t *new_table,
-    const Table *old_dd_tab, Table *new_dd_tab) {
+    const Table *old_dd_tab, Table *new_dd_tab,
+    const lizard::Ha_ddl_policy *ddl_policy) {
   if (new_table->is_temporary()) {
     /* No need to fill in metadata for temporary tables,
     which would not be stored in Global DD */
@@ -4311,7 +4312,7 @@ static void dd_commit_inplace_alter_table(
 
   new_table->dd_space_id = dd_space_id;
 
-  dd_write_table(dd_space_id, new_dd_tab, new_table);
+  dd_write_table(dd_space_id, new_dd_tab, new_table, ddl_policy);
 
   /* If this table is discarded, we need to set this to both dd::Table
   and dd::Tablespace. */
@@ -4925,7 +4926,8 @@ template <typename Table>
     }
 
     ctx->add_index[a] =
-        ddl::create_index(ctx->trx, ctx->new_table, &index_defs[a], add_v);
+        ddl::create_index(ctx->trx, ctx->new_table, &index_defs[a], add_v,
+                          ha_alter_info->ddl_policy);
 
     add_key_nums[a] = index_defs[a].m_key_number;
 
@@ -10587,7 +10589,8 @@ end:
         }
 
         dd_commit_inplace_alter_table(ctx_parts->m_old_info[i], ctx->new_table,
-                                      old_part, new_part);
+                                      old_part, new_part,
+                                      ha_alter_info->ddl_policy);
       }
 
       ++i;
@@ -11047,18 +11050,11 @@ int ha_innopart::exchange_partition_low(uint part_id, dd::Table *part_table,
       swap_index->se_private_data().clear();
       swap_index->set_se_private_data(*p_se_data);
     }
-  }
-#ifdef UNIV_DEBUG
-  for (s_iter = swap_indexes.begin(), pt_iter = part_table_indexes.begin();
-       s_iter < swap_indexes.end() && pt_iter < part_table_indexes.end();
-       pt_iter++, s_iter++) {
-    auto part_table_index = *pt_iter;
-    auto swap_index = *s_iter;
 
-    ut_ad(part_table_index->options().raw_string() ==
-          swap_index->options().raw_string());
+    /* Lizard-4.0: IFT option should be exchanged. */
+    lizard::dd_exchange_index_format(part_index->options(),
+                                     swap_index->options());
   }
-#endif
 
   /* Swap the se_private_data and options of the two tables.
   Only the max autoinc should be set to both tables */

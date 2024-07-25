@@ -1906,7 +1906,18 @@ trx_id_t rec_get_trx_id(const rec_t *rec,          /*!< in: record */
 #ifdef UNIV_DEBUG
   const page_t *page = page_align(rec);
   if (fil_page_index_page_check(page)) {
-    ut_ad(mach_read_from_8(page + PAGE_HEADER + PAGE_INDEX_ID) == index->id);
+    /**
+     * An index ID of 0 indicates that the corresponding index page has been
+     * freed from the B-tree. During a transaction rollback, after modifications
+     * have been undone, a validation process ensures that the record has
+     * successfully reverted to its prior version by examining the transaction
+     * ID (trx id) on the record. It's possible for records that have been
+     * undone and merged into a new page, leading to the freeing of the
+     * original B-tree page. As a result, access to a record on a freed index
+     * page may occur during a rollback.
+     */
+    ut_ad(mach_read_from_8(page + PAGE_HEADER + PAGE_INDEX_ID) == index->id ||
+          (mach_read_from_8(page + PAGE_HEADER + PAGE_INDEX_ID) == 0));
   }
 #endif /* UNIV_DEBUG */
 

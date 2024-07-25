@@ -209,6 +209,8 @@ bool row_undo_search_clust_to_pcur(
     node->row = row_build(ROW_COPY_DATA, clust_index, rec, offsets, nullptr,
                           nullptr, nullptr, ext, node->heap);
 
+    lizard::row_undo_alloc_gpp_field(node);
+
     /* We will need to parse out virtual column info from undo
     log, first mark them DATA_MISSING. So we will know if the
     value gets updated */

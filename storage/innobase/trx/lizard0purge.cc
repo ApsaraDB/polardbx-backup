@@ -34,6 +34,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0scn.h"
 #include "lizard0gcs.h"
 #include "lizard0dbg.h"
+#include "lizard0row.h"
 #include "lizard0undo.h"
 #include "lizard0erase.h"
 
@@ -333,6 +334,47 @@ void trx_purge_start_history() {
     purge_node_t *node = static_cast<purge_node_t *>(thr->child);
     node->start_history_purge();
   }
+}
+
+/**
+ Optimistically repositions the `pcur` in the purge node to the clustered
+ index record. This method uses extra GPP information from the secondary index
+ record to attempt an optimistic repositioning without a top-down B-tree search.
+ If repositioning fails, it defaults to `row_purge_reposition_pcur()`, which
+ conducts a top-down B-tree search to reposition the `pcur`.
+
+ * @param[in] mode       Search mode, should be BTR_SEARCH_LEAF
+ * @param[in,out] node   Purge node
+ * @param[in] sec_cursor Cursor for the secondary index
+ * @param[in] mtr        Mini-transaction
+ * @return True if the cluster index record was successfully positioned
+ */
+bool row_purge_optimistic_reposition_pcur(ulint mode, purge_node_t *node,
+                                          btr_cur_t *sec_cursor, mtr_t *mtr) {
+  ut_ad(mode == BTR_SEARCH_LEAF);
+  if (!sec_cursor) {
+    return false;
+  }
+  ut_ad(!sec_cursor->index->is_clustered());
+
+  if (node->found_clust) {
+    ut_ad(node->validate_pcur());
+
+    node->found_clust =
+        node->pcur.restore_position(mode, mtr, UT_LOCATION_HERE);
+  } else {
+    ut_ad(page_is_leaf(btr_cur_get_page(sec_cursor)));
+    /** Try to guess the clustered index record optimistically. */
+    node->found_clust = row_purge_optimistic_guess_clust(
+        node->table->first_index(), sec_cursor->index, node->ref,
+        btr_cur_get_rec(sec_cursor), &node->pcur,
+        btr_cur_get_page_cur(sec_cursor)->offsets, mode, mtr);
+    if (node->found_clust) {
+      node->pcur.store_position(mtr);
+    }
+  }
+
+  return (node->found_clust);
 }
 
 }  // namespace lizard

@@ -34,6 +34,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "btr0btr.h"
 
 #include <sys/types.h>
+#include "lizard0btr0cur.h"
 
 #ifndef UNIV_HOTBACKUP
 #include "btr0cur.h"
@@ -579,6 +580,11 @@ void btr_page_free(dict_index_t *index, /*!< in: index tree */
 
   ut_ad(fil_page_index_page_check(block->frame));
   ut_ad(level != ULINT_UNDEFINED);
+
+  /** To indicate the index page is freed from the b-tree, we reset the index id
+   * to 0. */
+  lizard::btr_page_reset_index_id(block, mtr);
+
   btr_page_free_low(index, block, level, mtr);
 }
 

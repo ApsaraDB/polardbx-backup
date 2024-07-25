@@ -100,7 +100,9 @@ FLUSH TABLES t1 FOR EXPORT;
 --copy_file $MYSQLD_DATADIR/test/t1#p#p0.ibd $MYSQLD_DATADIR/test/t1#p#p0_backup.ibd
 --copy_file $MYSQLD_DATADIR/test/t1#p#p1.ibd $MYSQLD_DATADIR/test/t1#p#p1_backup.ibd
 --copy_file $MYSQLD_DATADIR/test/t1#p#p2.ibd $MYSQLD_DATADIR/test/t1#p#p2_backup.ibd
-
+--copy_file $MYSQLD_DATADIR/test/t1#p#p0.cfg $MYSQLD_DATADIR/test/t1#p#p0_backup.cfg
+--copy_file $MYSQLD_DATADIR/test/t1#p#p1.cfg $MYSQLD_DATADIR/test/t1#p#p1_backup.cfg
+--copy_file $MYSQLD_DATADIR/test/t1#p#p2.cfg $MYSQLD_DATADIR/test/t1#p#p2_backup.cfg
 UNLOCK TABLES;
 
 --error ER_DUP_ENTRY
@@ -125,7 +127,9 @@ ALTER TABLE t1 DISCARD TABLESPACE;
 --move_file $MYSQLD_DATADIR/test/t1#p#p0_backup.ibd $MYSQLD_DATADIR/test/t1#p#p0.ibd
 --move_file $MYSQLD_DATADIR/test/t1#p#p1_backup.ibd $MYSQLD_DATADIR/test/t1#p#p1.ibd
 --move_file $MYSQLD_DATADIR/test/t1#p#p2_backup.ibd $MYSQLD_DATADIR/test/t1#p#p2.ibd
-
+--move_file $MYSQLD_DATADIR/test/t1#p#p0_backup.cfg $MYSQLD_DATADIR/test/t1#p#p0.cfg
+--move_file $MYSQLD_DATADIR/test/t1#p#p1_backup.cfg $MYSQLD_DATADIR/test/t1#p#p1.cfg
+--move_file $MYSQLD_DATADIR/test/t1#p#p2_backup.cfg $MYSQLD_DATADIR/test/t1#p#p2.cfg
 --echo # Import old table and saved data from .ibd files [auto_inc = 6]
 --replace_result #p# #P# #sp# #SP#
 --replace_regex /Error opening '.*\/test\//Error opening '.\/test\//

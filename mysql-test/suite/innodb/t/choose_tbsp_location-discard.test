@@ -309,7 +309,7 @@ CHECK TABLE t5980;
 --echo #
 --disable_result_log
 
---error ER_TABLESPACE_MISSING
+--error ER_TABLE_CFG_MISSING
 ALTER TABLE t5980 IMPORT TABLESPACE;
 --enable_result_log
 --error ER_TABLESPACE_DISCARDED

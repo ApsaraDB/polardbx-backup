@@ -384,6 +384,8 @@ replicate-ignore-db=sys
 innodb_log_file_size=48M
 ${MYSQLD_EXTRA_MY_CNF_OPTS:-}
 loose_cluster_info=127.0.0.1:${MYSQLD_RAFT_PORT}@1
+new_rpc=0
+mysqlx=0
 
 [client]
 socket=${MYSQLD_SOCKET}

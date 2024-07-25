@@ -162,6 +162,7 @@ SET @@session.collation_database=DEFAULT/*!*/;
 /*!80011 SET @@session.default_collation_for_utf8mb4=255*//*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
 /*!80032 SET @@session.opt_flashback_area=0*//*!*/;
+/*!80032 SET @@session.opt_index_format_gpp_enabled=1*//*!*/;
 CREATE TABLE t1 (
 c1 INT,
 c2 VARCHAR(20)
@@ -183,6 +184,7 @@ SET @@SESSION.GTID_NEXT= '#'/*!*/;
 SET TIMESTAMP=#/*!*/;
 /*!80013 SET @@session.sql_require_primary_key=0*//*!*/;
 /*!80032 SET @@session.opt_flashback_area=0*//*!*/;
+/*!80032 SET @@session.opt_index_format_gpp_enabled=1*//*!*/;
 CREATE TABLE t2 (
 c1 INT,
 c2 VARCHAR(20)

@@ -37,6 +37,8 @@ Created 2020-11-01 by Sunny Bains. */
 #include "lock0lock.h"
 #include "row0log.h"
 
+#include "sql/dd/lizard_policy_types.h"
+
 /* Ignore posix_fadvise() on those platforms where it does not exist */
 #if defined _WIN32
 #define posix_fadvise(fd, offset, len, advice) /* nothing */
@@ -181,8 +183,8 @@ bool file_create(ddl::file_t *file, const char *path) noexcept {
 }
 
 dict_index_t *create_index(trx_t *trx, dict_table_t *table,
-                           const Index_defn *index_def,
-                           const dict_add_v_col_t *add_v) noexcept {
+                           Index_defn *index_def, const dict_add_v_col_t *add_v,
+                           lizard::Ha_ddl_policy *ddl_policy) noexcept {
   const size_t n_fields = index_def->m_n_fields;
 
   ut_ad(!srv_read_only_mode);
@@ -225,6 +227,9 @@ dict_index_t *create_index(trx_t *trx, dict_table_t *table,
   dict_sys_mutex_exit();
 
   dict_build_index_def(table, index, trx);
+
+  lizard::dd_fill_dict_index_format(
+      lizard::ha_ddl_create_index_policy(ddl_policy, table, index), table, index);
 
   auto err = dict_index_add_to_cache_w_vcol(table, index, add_v, index->page,
                                             trx_is_strict(trx));
@@ -501,6 +506,24 @@ dberr_t Row::build(ddl::Context &ctx, dict_index_t *index, mem_heap_t *heap,
   m_ptr = row_build_w_add_vcol(type, index, m_rec, m_offsets, ctx.m_new_table,
                                m_add_cols, ctx.m_add_v, ctx.m_col_map, &m_ext,
                                heap);
+
+  /** Deal with gpp column. */
+  byte *ptr = static_cast<byte *>(mem_heap_zalloc(heap, DATA_GPP_NO_LEN));
+  dfield_t *v_gfield = lizard::dtuple_get_v_gfield(m_ptr);
+  dfield_set_data(v_gfield, ptr, DATA_GPP_NO_LEN);
+  /** The page number can be directly inferred since m_rec is obtained from
+   * page_cur_get_rec(cur). */
+  page_no_t page_no = m_page_no;
+  ut_ad(page_no != FIL_NULL);
+
+  if (ctx.m_old_table != ctx.m_new_table) {
+    /* For rebuilding table, gpp in s_gfield is the old clust index's page no.
+       Set it to NULL to avoid miss-hitting when sec index back to clust
+       index.  */
+    page_no = FIL_NULL;
+  }
+
+  mach_write_to_4(ptr, page_no);
 
   if (!ctx.check_null_constraints(m_ptr)) {
     ctx.m_trx->error_key_num = SERVER_CLUSTER_INDEX_ID;

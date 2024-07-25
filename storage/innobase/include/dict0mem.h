@@ -529,7 +529,10 @@ struct dict_col_t {
   /* End of definitions copied from dtype_t */
   /** @} */
 
-  unsigned ind : 10;        /*!< table column position
+  /* Lizard-4.0: extend ind from 10-bits to 11-bits for Secondary
+     Lizard Columns. See comments of DATA_GPP_NO for more informations.
+  */
+  unsigned ind : 11;        /*!< table column position
                             (starting from 0) */
   unsigned ord_part : 1;    /*!< nonzero if this column
                             appears in the ordering fields
@@ -1277,6 +1280,34 @@ struct dict_index_t {
   scn: The real scn of the creator trx. It's always set as the
        actual value from undo header when it is SCN_NULL */
   txn_index_t txn;
+  /** Lizard-3.0 GPP NO field, virtual or stored by se_private_data
+   *
+   *  1) Always virtual on primary key
+   *  2) Stored on secondary index if DD_GPP_KEY
+   * */
+  dict_field_t *v_gfield{nullptr};
+  uint8_t n_v_gfields;
+
+  /** Number of stored gpp fields. Only in secondary index. */
+  uint8_t n_s_gfields;
+
+  /** Whether have stored gpp_no column capacity. */
+  bool gpp_stored{false};
+  bool is_gstored() const { return gpp_stored; }
+  void set_gstored(bool stored) { gpp_stored = stored; }
+
+  /** The count of successful gpp (Guess Primary Page). */
+  mutable lizard_stats_t::ulint_ctr_1_t gpp_hit;
+  /** The count of failed gpp (Guess Primary Page). */
+  mutable lizard_stats_t::ulint_ctr_1_t gpp_miss;
+
+  void gpp_stat(bool hit) const {
+    if (hit) {
+      gpp_hit.inc();
+    } else {
+      gpp_miss.inc();
+    }
+  }
 
 
   /** Determine if the index has been committed to the
@@ -2586,9 +2617,12 @@ detect this and will eventually quit sooner. */
   @return column name. NOTE: not guaranteed to stay valid if table is
   modified in any way (columns added, etc.). */
   const char *get_col_name(ulint col_nr) const {
-    ut_ad(col_nr < n_def);
+    ut_ad(col_nr < n_def || col_nr == DATA_GPP_NO);
     ut_ad(magic_n == DICT_TABLE_MAGIC_N);
 
+    if (col_nr == DATA_GPP_NO) {
+      return g_col_name();
+    }
     const char *s = col_names;
     if (s) {
       for (ulint i = 0; i < col_nr; i++) {
@@ -2613,10 +2647,12 @@ detect this and will eventually quit sooner. */
   @param[in] pos        position of column
   @return pointer to column object */
   dict_col_t *get_col(uint pos) const {
-    ut_ad(pos < n_def);
+    ut_ad(pos < n_def || pos == DATA_GPP_NO);
     ut_ad(magic_n == DICT_TABLE_MAGIC_N);
 
-    return (cols + pos);
+    /** Lizard-4.0 */
+    return pos == DATA_GPP_NO ? v_gcol : cols + pos;
+    // return (cols + pos);
   }
 
   /** Get column by name
@@ -2737,6 +2773,9 @@ detect this and will eventually quit sooner. */
 
   /** Lizard: two phase purge on table. */
   bool is_2pp;
+
+  /** Lizard-4.0 hardcode GPP column*/
+  dict_col_t *v_gcol{nullptr};
 };
 
 static inline void DICT_TF2_FLAG_SET(dict_table_t *table, uint32_t flag) {

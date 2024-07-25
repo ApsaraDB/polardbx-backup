@@ -1558,10 +1558,6 @@ PARTITIONS 3;
 ALTER TABLE t1 DISCARD TABLESPACE;
 # Import old table and saved data from .ibd files [auto_inc = 6]
 ALTER TABLE t1 IMPORT TABLESPACE;
-Warnings:
-Warning	1810	InnoDB: IO Read error: (2, No such file or directory) Error opening './test/t1#P#p0.cfg', will attempt to import without schema verification
-Warning	1810	InnoDB: IO Read error: (2, No such file or directory) Error opening './test/t1#P#p1.cfg', will attempt to import without schema verification
-Warning	1810	InnoDB: IO Read error: (2, No such file or directory) Error opening './test/t1#P#p2.cfg', will attempt to import without schema verification
 SHOW CREATE TABLE t1;
 Table	Create Table
 t1	CREATE TABLE `t1` (

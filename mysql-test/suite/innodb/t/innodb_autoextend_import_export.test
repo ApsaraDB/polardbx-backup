@@ -113,6 +113,7 @@ FLUSH TABLE tsource FOR EXPORT;
 --echo # List of files on source
 --list_files $MYSQLD_DATADIR/db_source
 --copy_file $MYSQLD_DATADIR/db_source/tsource.ibd $MYSQLD_DATADIR/db_destination/tsource.ibd
+--copy_file $MYSQLD_DATADIR/db_source/tsource.cfg $MYSQLD_DATADIR/db_destination/tsource.cfg
 
 --echo # List of files on destination
 --list_files $MYSQLD_DATADIR/db_destination
@@ -121,6 +122,7 @@ UNLOCK TABLES;
 
 USE db_destination;
 --disable_warnings
+--echo # Lizard 4.0 Import without .cfg file is impossible now
 ALTER TABLE tsource IMPORT TABLESPACE;
 --enable_warnings
 SELECT COUNT(*) FROM tsource;
@@ -397,6 +399,7 @@ FLUSH TABLE tsource FOR EXPORT;
 --echo # List of files on source
 --list_files $MYSQLD_DATADIR/db_source
 --copy_files_wildcard $MYSQLD_DATADIR/db_source/ $MYSQLD_DATADIR/db_destination/ tsource*.ibd
+--copy_files_wildcard $MYSQLD_DATADIR/db_source/ $MYSQLD_DATADIR/db_destination/ tsource*.cfg
 
 --echo # List of files on destination
 --list_files $MYSQLD_DATADIR/db_destination
@@ -405,6 +408,7 @@ UNLOCK TABLES;
 
 USE db_destination;
 --disable_warnings
+--echo # Lizard 4.0 Import without .cfg file is impossible now
 ALTER TABLE tsource IMPORT TABLESPACE;
 --enable_warnings
 
@@ -448,8 +452,7 @@ FLUSH TABLE tsource FOR EXPORT;
 --echo # List of files on source
 --list_files $MYSQLD_DATADIR/db_source
 --copy_files_wildcard $MYSQLD_DATADIR/db_source/ $MYSQLD_DATADIR/db_destination/ tsource*.ibd
---copy_files_wildcard $MYSQLD_DATADIR/db_source/ $MYSQLD_DATADIR/db_destination/ tsource*p0.cfg
---copy_files_wildcard $MYSQLD_DATADIR/db_source/ $MYSQLD_DATADIR/db_destination/ tsource*p2.cfg
+--copy_files_wildcard $MYSQLD_DATADIR/db_source/ $MYSQLD_DATADIR/db_destination/ tsource*.cfg
 
 --echo # List of files on destination
 --list_files $MYSQLD_DATADIR/db_destination
@@ -458,6 +461,7 @@ UNLOCK TABLES;
 
 USE db_destination;
 --disable_warnings
+--echo # Lizard 4.0 Import without .cfg file is impossible now
 ALTER TABLE tsource IMPORT TABLESPACE;
 --enable_warnings
 

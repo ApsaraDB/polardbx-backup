@@ -32,6 +32,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #include "row0log.h"
 
+#include "lizard0btr0cur.h"
+#include "lizard0dict.h"
 #include "my_config.h"
 
 #include <fcntl.h>
@@ -295,6 +297,10 @@ void row_log_online_op(
 
   if (index->is_corrupted()) {
     return;
+  }
+
+  if (index->n_s_gfields > 0) {
+    ut_ad(tuple->read_s_gpp_no() != 0);
   }
 
   ut_ad(dict_index_is_online_ddl(index));
@@ -1367,6 +1373,8 @@ void row_log_table_blob_alloc(
     dict_table_copy_types(row, log->table);
   }
 
+  lizard::row_log_table_alloc_gpp_field(row, heap);
+
   for (ulint i = 0; i < rec_offs_n_fields(offsets); i++) {
     const dict_field_t *ind_field = index->get_field(i);
 
@@ -1514,6 +1522,10 @@ It is then unmarked. Otherwise, the entry is just inserted to the index.
 
   for (dtuple_t *mv_entry = mv_entry_builder.begin(); mv_entry != nullptr;
        mv_entry = mv_entry_builder.next()) {
+
+    /* Lizard-4.0: Assert entry of json multi-value index. */
+    lizard_row_sec_multi_value_assert_gpp_no(index, entry);
+
     err =
         row_ins_sec_index_entry_low(flags, BTR_MODIFY_TREE, index, offsets_heap,
                                     heap, mv_entry, trx_id, thr, false);
@@ -1543,6 +1555,7 @@ It is then unmarked. Otherwise, the entry is just inserted to the index.
   const row_log_t *log = dup->m_index->online_log;
   dict_index_t *index = log->table->first_index();
   ulint n_index = 0;
+  gpp_no_t gpp_no = 0;
 
   ut_ad(dtuple_validate(row));
   ut_ad(trx_id);
@@ -1556,8 +1569,8 @@ It is then unmarked. Otherwise, the entry is just inserted to the index.
 
   entry = row_build_index_entry(row, nullptr, index, heap);
 
-  error = row_ins_clust_index_entry_low(flags, BTR_MODIFY_TREE, index,
-                                        index->n_uniq, entry, thr, false);
+  error = row_ins_clust_index_entry_low(
+      flags, BTR_MODIFY_TREE, index, index->n_uniq, entry, &gpp_no, thr, false);
 
   switch (error) {
     case DB_SUCCESS:
@@ -1568,6 +1581,8 @@ It is then unmarked. Otherwise, the entry is just inserted to the index.
     default:
       return (error);
   }
+
+  lizard::row_log_table_clust_write_gpp_no(gpp_no, index, row);
 
   do {
     n_index++;
@@ -1581,6 +1596,8 @@ It is then unmarked. Otherwise, the entry is just inserted to the index.
     }
 
     entry = row_build_index_entry(row, nullptr, index, heap);
+
+    lizard_row_log_table_sec_assert_gpp_no(index, entry, row, gpp_no);
 
     if (index->is_multi_value()) {
       error = apply_insert_multi_value(flags, index, offsets_heap, heap, entry,
@@ -1978,6 +1995,10 @@ flag_ok:
 
     for (dtuple_t *entry = mv_entry_builder.begin(); entry != nullptr;
          entry = mv_entry_builder.next()) {
+
+      /* Lizard-4.0: Assert entry of json multi-value index. */
+      lizard_row_sec_multi_value_assert_gpp_no(index, entry);
+
       error = row_ins_sec_index_entry_low(
           BTR_CREATE_FLAG | BTR_NO_LOCKING_FLAG | BTR_NO_UNDO_LOG_FLAG |
               BTR_KEEP_SYS_FLAG,
@@ -2274,6 +2295,7 @@ flag_ok:
   }
 
   big_rec_t *big_rec;
+  gpp_no_t gpp_no = 0;
 
   error = btr_cur_pessimistic_update(
       BTR_CREATE_FLAG | BTR_NO_LOCKING_FLAG | BTR_NO_UNDO_LOG_FLAG |
@@ -2289,6 +2311,12 @@ flag_ok:
 
     dtuple_big_rec_free(big_rec);
   }
+
+  if (error == DB_SUCCESS) {
+    gpp_no = lizard::btr_cur_get_page_no(pcur.get_btr_cur());
+    lizard::row_log_table_clust_write_gpp_no(gpp_no, index, row);
+  }
+
   bool vfields_copied = false;
   while ((index = index->next()) != nullptr) {
     n_index++;
@@ -2347,6 +2375,9 @@ flag_ok:
     mtr_commit(&mtr);
 
     entry = row_build_index_entry(row, nullptr, index, heap);
+
+    lizard_row_log_table_sec_assert_gpp_no(index, entry, row, gpp_no);
+
     error = row_ins_sec_index_entry_low(
         BTR_CREATE_FLAG | BTR_NO_LOCKING_FLAG | BTR_NO_UNDO_LOG_FLAG |
             BTR_KEEP_SYS_FLAG,
@@ -3210,7 +3241,8 @@ static void row_log_apply_op_low(
   if (cursor.low_match >= dict_index_get_n_unique(index) &&
       !page_rec_is_infimum(btr_cur_get_rec(&cursor))) {
     /* We have a matching record. */
-    bool exists = (cursor.low_match == dict_index_get_n_fields(index));
+    bool exists = (cursor.low_match ==
+                   lizard::row_log_dict_index_get_ordered_n_fields(index));
 #ifdef UNIV_DEBUG
     rec_t *rec = btr_cur_get_rec(&cursor);
     ut_ad(page_rec_is_user_rec(rec));

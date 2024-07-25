@@ -120,6 +120,10 @@ class Table;
 class Tablespace;
 }  // namespace dd
 
+namespace lizard {
+class Ha_ddl_policy;
+}
+
 constexpr const ha_rows EXTRA_RECORDS{10};
 
 /** Id for identifying Table SDIs */
@@ -3513,6 +3517,8 @@ class Alter_inplace_info {
   */
   const char *unsupported_reason;
 
+  lizard::Ha_ddl_policy *ddl_policy;
+
   Alter_inplace_info(HA_CREATE_INFO *create_info_arg,
                      Alter_info *alter_info_arg, bool error_if_not_empty_arg,
                      KEY *key_info_arg, uint key_count_arg,
@@ -3537,7 +3543,8 @@ class Alter_inplace_info {
         modified_part_info(modified_part_info_arg),
         online(false),
         handler_trivial_ctx(0),
-        unsupported_reason(nullptr) {}
+        unsupported_reason(nullptr),
+        ddl_policy(nullptr) {}
 
   ~Alter_inplace_info() { destroy(handler_ctx); }
 
@@ -6978,6 +6985,8 @@ class handler {
                                HA_CREATE_INFO *) {
     return;
   }
+
+  virtual bool support_index_format() const { return false; }
 };
 
 /* Temporary Table handle for opening uncached table */

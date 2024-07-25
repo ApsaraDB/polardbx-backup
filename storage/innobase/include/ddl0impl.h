@@ -149,6 +149,8 @@ struct Row {
 
   /** Add column data values. */
   dtuple_t *m_add_cols{};
+
+  page_no_t m_page_no{};
 };
 
 /** Create a merge file int the given location.

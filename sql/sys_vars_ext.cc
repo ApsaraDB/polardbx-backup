@@ -302,3 +302,10 @@ static Sys_var_bool Sys_opt_flashback_area(
     "opt_flashback_area", "Enable flashback area when a new table is created. ",
     SESSION_VAR(opt_flashback_area), CMD_LINE(OPT_ARG), DEFAULT(0),
     NO_MUTEX_GUARD, IN_BINLOG, ON_CHECK(0), ON_UPDATE(0));
+
+static Sys_var_bool Sys_opt_index_format_gpp_enabled(
+    "opt_index_format_gpp_enabled",
+    "When this option is enabled,"
+    "it will add gpp column on secondary index if suitable.",
+    SESSION_VAR(opt_index_format_gpp_enabled), CMD_LINE(OPT_ARG), DEFAULT(true),
+    NO_MUTEX_GUARD, IN_BINLOG, ON_CHECK(0), ON_UPDATE(0));

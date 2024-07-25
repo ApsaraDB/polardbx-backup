@@ -104,7 +104,7 @@ ALTER TABLE t2 DISCARD TABLESPACE;
 ALTER TABLE t2 IMPORT TABLESPACE;
 ERROR HY000: Schema mismatch (Table flags don't match, server table has ROW_TYPE_DYNAMIC and the meta-data file has ROW_TYPE_COMPACT)
 ALTER TABLE t2 IMPORT TABLESPACE;
-ERROR HY000: Schema mismatch (Table has ROW_TYPE_DYNAMIC row format, .ibd file has ROW_TYPE_COMPACT row format.)
+ERROR HY000: Config file is missing for importing table t2
 DROP TABLE t2;
 SET GLOBAL innodb_file_per_table = 1;
 SELECT @@innodb_file_per_table;

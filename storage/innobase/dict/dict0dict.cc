@@ -2478,6 +2478,8 @@ dberr_t dict_index_add_to_cache_w_vcol(dict_table_t *table, dict_index_t *index,
     new_index = dict_index_build_internal_non_clust(table, index);
   }
 
+  assert_lizard_dict_index_gstored_check(new_index);
+
   /* Set the n_fields value in new_index to the actual defined
   number of fields in the cache internal representation */
 
@@ -2652,6 +2654,7 @@ static void dict_index_remove_from_cache_low(
   ut_ad(table->magic_n == DICT_TABLE_MAGIC_N);
   ut_ad(index->magic_n == DICT_INDEX_MAGIC_N);
   ut_ad(dict_sys_mutex_own());
+  assert_lizard_dict_index_gstored_check(index);
 
   /* No need to acquire the dict_index_t::lock here because
   there can't be any active operations on this index (or table). */
@@ -2932,6 +2935,8 @@ void dict_table_copy_types(dtuple_t *tuple,           /*!< in/out: data tuple */
   }
 
   dict_table_copy_v_types(tuple, table);
+
+  lizard::dict_table_copy_g_types(tuple, table);
 }
 
 void dict_table_wait_for_bg_threads_to_exit(dict_table_t *table,
@@ -2963,6 +2968,8 @@ static dict_index_t *dict_index_build_internal_clust(
 
   ut_ad(!dict_sys_mutex_own());
   ut_ad(table->magic_n == DICT_TABLE_MAGIC_N);
+
+  ut_ad(!index->is_gstored());
 
   uint32_t total_cols_in_table = table->get_total_cols();
 
@@ -3103,6 +3110,8 @@ static dict_index_t *dict_index_build_internal_clust(
                        true);
     set_phy_pos(table->get_sys_col(DATA_GCN_ID));
   }
+  /** GPP_NO is virtual column, skip physical pos confirm */
+  lizard::dict_index_add_virtual_gcol(new_index, table);
 
   /* Remember the table columns already contained in new_index */
   bool *indexed = static_cast<bool *>(ut::zalloc_withkey(
@@ -3205,6 +3214,9 @@ static dict_index_t *dict_index_build_internal_non_clust(
   /* Copy fields from index to new_index */
   dict_index_copy(new_index, index, table, 0, index->n_fields);
 
+  /** GPP_NO is virtual column, skip physical pos confirm */
+  lizard::dict_index_add_virtual_gcol(new_index, table);
+
   /* Remember the table columns already contained in new_index */
   indexed = static_cast<bool *>(ut::zalloc_withkey(
       UT_NEW_THIS_FILE_PSI_KEY, table->n_cols * sizeof *indexed));
@@ -3235,6 +3247,7 @@ static dict_index_t *dict_index_build_internal_non_clust(
       dict_index_add_col(new_index, table, field->col, field->prefix_len,
                          field->is_ascending);
     } else if (dict_index_is_spatial(index)) {
+      ut_ad(!index->is_gstored());
       /*For spatial index, we still need to add the
       field to index. */
       dict_index_add_col(new_index, table, field->col, field->prefix_len,
@@ -3242,12 +3255,15 @@ static dict_index_t *dict_index_build_internal_non_clust(
     }
   }
 
+  /* Copy gpp fields for sec index. */
+  lizard::dict_index_add_stored_gcol(new_index, index, table);
+
   ut::free(indexed);
 
   if (dict_index_is_unique(index)) {
     new_index->n_uniq = index->n_fields;
   } else {
-    new_index->n_uniq = new_index->n_def;
+    new_index->n_uniq = new_index->n_def - new_index->n_s_gfields;
   }
 
   /* Set the n_fields value in new_index to the actual defined
@@ -3274,6 +3290,8 @@ static dict_index_t *dict_index_build_internal_fts(
   ut_ad(!dict_sys_mutex_own());
   ut_ad(table->magic_n == DICT_TABLE_MAGIC_N);
 
+  ut_ad(!index->is_gstored());
+
   /* Create a new index */
   new_index = dict_mem_index_create(table->name.m_name, index->name,
                                     index->space, index->type, index->n_fields);
@@ -3287,6 +3305,8 @@ static dict_index_t *dict_index_build_internal_fts(
 
   /* Copy fields from index to new_index */
   dict_index_copy(new_index, index, table, 0, index->n_fields);
+
+  lizard::dict_index_add_virtual_gcol(new_index, table);
 
   new_index->n_uniq = 0;
   new_index->cached = true;
@@ -5401,9 +5421,9 @@ dberr_t DDTableBuffer::replace(table_id_t id, uint64_t version,
 
     mtr.commit();
 
-    error =
-        row_ins_clust_index_entry_low(flags, BTR_MODIFY_TREE, m_index,
-                                      m_index->n_uniq, entry, nullptr, false);
+    error = row_ins_clust_index_entry_low(flags, BTR_MODIFY_TREE, m_index,
+                                          m_index->n_uniq, entry, nullptr,
+                                          nullptr, false);
     ut_a(error == DB_SUCCESS);
 
     mem_heap_empty(m_dynamic_heap);

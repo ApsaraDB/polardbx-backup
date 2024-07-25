@@ -334,6 +334,9 @@ dberr_t Parallel_cursor::scan(Builders &builders) noexcept {
 
         row.m_rec = read_ctx->m_rec;
 
+        row.m_page_no = read_ctx->m_block->page.id.page_no();
+        ut_ad(row.m_page_no != FIL_NULL);
+
         row.m_offsets =
             rec_get_offsets(row.m_rec, index(), nullptr, ULINT_UNDEFINED,
                             UT_LOCATION_HERE, &heap);

@@ -1,0 +1,360 @@
+#
+# Test online DDL when bringing in gpp column. (Mainly test row_log related.)
+#
+set global innodb_lizard_stat_enabled=on;
+set global innodb_index_purge_guess_clust_enabled=on;
+set global innodb_index_scan_guess_clust_enabled=on;
+CREATE PROCEDURE table_t1_creation()
+BEGIN
+DECLARE i INT DEFAULT 1;
+DECLARE num INT DEFAULT 7;
+DROP TABLE IF EXISTS t1;
+CREATE TABLE t1 (
+a int NOT NULL,
+b int NOT NULL,
+c int NOT NULL,
+pad varchar(8192),
+KEY (b)
+) ENGINE=innodb AUTO_INCREMENT=0;
+WHILE i <= num DO
+INSERT INTO t1 VALUES (i, i, i, REPEAT('a',3000));
+SET i = i + 1;
+END WHILE;
+END|
+# ----------------1. Basic rebuild ddl test (without row_log_table) -------------
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7;
+include/assert.inc [gpp hit/miss times shoule be 7]
+SET opt_index_format_gpp_enabled = FALSE;
+ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  PRIMARY KEY (`c`),
+  KEY `b` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7;
+include/assert.inc [gpp hit/miss times shoule be 0]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 0]
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 DROP PRIMARY KEY, ADD PRIMARY KEY (a), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  PRIMARY KEY (`a`),
+  KEY `b` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT c FROM t1 FORCE INDEX (b) WHERE b<=7;
+include/assert.inc [gpp hit/miss times shoule be 7]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 7]
+SET opt_index_format_gpp_enabled = FALSE;
+ALTER TABLE t1 ADD COLUMN d INT DEFAULT 0, ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  `d` int DEFAULT '0',
+  PRIMARY KEY (`a`),
+  KEY `b` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7;
+include/assert.inc [gpp hit/miss times shoule be 0]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 0]
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 DROP COLUMN c, ADD INDEX (d), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  `d` int DEFAULT '0',
+  PRIMARY KEY (`a`),
+  KEY `b` (`b`),
+  KEY `d` (`d`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT b FROM t1 FORCE INDEX (d) WHERE d<=1;
+include/assert.inc [gpp hit/miss times shoule be 7]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 7]
+DROP TABLE t1;
+# -------------------2. Basic non-rebuild ddl test (without row_log) -------------
+SET opt_index_format_gpp_enabled = FALSE;
+call table_t1_creation();
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7;
+include/assert.inc [gpp hit/miss times shoule be 0]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 0]
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 ADD INDEX(c), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  KEY `b` (`b`),
+  KEY `c` (`c`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT b FROM t1 FORCE INDEX (c) WHERE c<=7;
+include/assert.inc [gpp hit/miss times shoule be 7]
+include/assert.inc [gpp hit times shoule be 7]
+include/assert.inc [gpp miss times shoule be 0]
+SET opt_index_format_gpp_enabled = FALSE;
+ALTER TABLE t1 DROP INDEX `b`, ADD INDEX `b2`(b), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  KEY `c` (`c`),
+  KEY `b2` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT c FROM t1 FORCE INDEX (`b2`) WHERE b<=7;
+include/assert.inc [gpp hit/miss times shoule be 0]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 0]
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 ADD INDEX `mul_col`(c,b), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  KEY `c` (`c`),
+  KEY `b2` (`b`),
+  KEY `mul_col` (`c`,`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (`mul_col`) WHERE c<=7;
+include/assert.inc [gpp hit/miss times shoule be 7]
+include/assert.inc [gpp hit times shoule be 7]
+include/assert.inc [gpp miss times shoule be 0]
+DROP TABLE t1;
+# ----------------3. Rebuild ddl test (within row_log_table) -------------
+# -----3.1. Rebuild ddl and apply row_log_table (DEBUG_SYNC=row_log_table_apply1_before)-------------
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+# Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_table_apply1_before SIGNAL s1 WAIT_FOR s2';
+# Rebuild the table
+ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE;
+# connection con1
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+UPDATE t1 SET b=8 where b=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+# Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+# connection default
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  PRIMARY KEY (`c`),
+  KEY `b` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b) WHERE b>=6;
+include/assert.inc [gpp hit/miss times shoule be 3]
+include/assert.inc [gpp hit times shoule be 2]
+include/assert.inc [gpp miss times shoule be 1]
+# -----3.2. Rebuild ddl and apply row_log_table (DEBUG_SYNC=row_log_table_apply1_before, change opt_index_format_gpp_enabled while rebuilding)-------------
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+# Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_table_apply1_before SIGNAL s1 WAIT_FOR s2';
+# Rebuild the table
+ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE;
+# connection con1
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+SET opt_index_format_gpp_enabled = FALSE;
+UPDATE t1 SET b=8 where b=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+# Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+# connection default
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  PRIMARY KEY (`c`),
+  KEY `b` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b) WHERE b>=6;
+include/assert.inc [gpp hit/miss times shoule be 3]
+include/assert.inc [gpp hit times shoule be 2]
+include/assert.inc [gpp miss times shoule be 1]
+SET opt_index_format_gpp_enabled = FALSE;
+call table_t1_creation();
+# Make alter table wait
+SET DEBUG_SYNC = 'row_log_table_apply1_before SIGNAL s1 WAIT_FOR s2';
+# Rebuild the table
+ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE;
+# connection con1
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+SET opt_index_format_gpp_enabled = TRUE;
+UPDATE t1 SET b=8 where b=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+# Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+# connection default
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  PRIMARY KEY (`c`),
+  KEY `b` (`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (b) WHERE b>=6;
+include/assert.inc [gpp hit/miss times shoule be 0]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 0]
+# -------------------4. Non-rebuild ddl test (within row_log) -------------
+# -----4.1. Non-rebuild ddl and apply row_log (DEBUG_SYNC=row_log_apply_before)-------------
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+# Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_apply_before SIGNAL s1 WAIT_FOR s2';
+# Add secondary index
+ALTER TABLE t1 ADD INDEX `c_b` (c,b), ALGORITHM=INPLACE, LOCK=NONE;
+# connection con1
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+UPDATE t1 SET c=8 where c=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, 'a');
+# Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+# connection default
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  KEY `b` (`b`),
+  KEY `c_b` (`c`,`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (`c_b`) WHERE c>=6;
+include/assert.inc [gpp hit/miss times shoule be 3]
+include/assert.inc [gpp hit times shoule be 3]
+include/assert.inc [gpp miss times shoule be 0]
+# -------------------4. Non-rebuild ddl test (within row_log) -------------
+# -----4.2. Non-rebuild ddl and apply row_log (DEBUG_SYNC=row_log_apply_before)-------------
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+# Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_apply_before SIGNAL s1 WAIT_FOR s2';
+# Add secondary index
+ALTER TABLE t1 ADD INDEX `c_b` (c,b), ALGORITHM=INPLACE, LOCK=NONE;
+# connection con1
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+SET opt_index_format_gpp_enabled = FALSE;
+UPDATE t1 SET c=8 where c=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+# Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+# connection default
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  KEY `b` (`b`),
+  KEY `c_b` (`c`,`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (`c_b`) WHERE c>=6;
+include/assert.inc [gpp hit/miss times shoule be 3]
+include/assert.inc [gpp hit times shoule be 3]
+include/assert.inc [gpp miss times shoule be 0]
+SET opt_index_format_gpp_enabled = FALSE;
+call table_t1_creation();
+# Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_apply_before SIGNAL s1 WAIT_FOR s2';
+# Add secondary index
+ALTER TABLE t1 ADD INDEX `c_b` (c,b), ALGORITHM=INPLACE, LOCK=NONE;
+# connection con1
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+SET opt_index_format_gpp_enabled = TRUE;
+UPDATE t1 SET c=8 where c=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+# Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+# connection default
+SHOW CREATE TABLE t1;
+Table	Create Table
+t1	CREATE TABLE `t1` (
+  `a` int NOT NULL,
+  `b` int NOT NULL,
+  `c` int NOT NULL,
+  `pad` varchar(8192) DEFAULT NULL,
+  KEY `b` (`b`),
+  KEY `c_b` (`c`,`b`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+call dbms_stat.flush_gpp();
+SELECT a FROM t1 FORCE INDEX (`c_b`) WHERE c>=6;
+include/assert.inc [gpp hit/miss times shoule be 0]
+include/assert.inc [gpp hit times shoule be 0]
+include/assert.inc [gpp miss times shoule be 0]
+# -------------------------5. Clean up --------------------------------------------------
+SET opt_index_format_gpp_enabled= 1;
+SET GLOBAL innodb_lizard_stat_enabled= 0;
+SET GLOBAL innodb_index_purge_guess_clust_enabled= 1;
+SET GLOBAL innodb_index_scan_guess_clust_enabled= 1;
+DROP TABLE t1;
+DROP PROCEDURE table_t1_creation;
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG = '';

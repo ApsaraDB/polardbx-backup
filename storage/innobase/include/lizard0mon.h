@@ -218,6 +218,24 @@ struct lizard_var_t {
   ulint commit_snapshot_scn_search_hit;
   /** Search commit snapshot through gcn */
   ulint commit_snapshot_gcn_search_hit;
+
+  /** The count of successful clustered index record inferences during the scan.
+   */
+  ulint index_scan_guess_clust_hit;
+  /** The count of failed clustered index record inferences during the scan. */
+  ulint index_scan_guess_clust_miss;
+
+  /** The count of successful clustered index record inferences during the
+   * purge. */
+  ulint index_purge_guess_clust_hit;
+  /** The count of failed clustered index record inferences during the purge. */
+  ulint index_purge_guess_clust_miss;
+
+  /** The count of successful clustered index record inferences during locking.
+   */
+  ulint index_lock_guess_clust_hit;
+  /** The count of failed clustered index record inferences during locking. */
+  ulint index_lock_guess_clust_miss;
 };
 
 struct lizard_stats_t {
@@ -319,6 +337,24 @@ struct lizard_stats_t {
 
   /** Search commit snapshot through gcn */
   ulint_ctr_1_t commit_snapshot_gcn_search_hit;
+
+  /** The count of successful clustered index record inferences during the scan.
+   */
+  ulint_ctr_1_t index_scan_guess_clust_hit;
+  /** The count of failed clustered index record inferences during the scan. */
+  ulint_ctr_1_t index_scan_guess_clust_miss;
+
+  /** The count of successful clustered index record inferences during the
+   * purge. */
+  ulint_ctr_1_t index_purge_guess_clust_hit;
+  /** The count of failed clustered index record inferences during the purge. */
+  ulint_ctr_1_t index_purge_guess_clust_miss;
+
+  /** The count of successful clustered index record inferences during locking.
+   */
+  ulint_ctr_1_t index_lock_guess_clust_hit;
+  /** The count of failed clustered index record inferences during locking. */
+  ulint_ctr_1_t index_lock_guess_clust_miss;
 };
 
 namespace lizard {
@@ -344,6 +380,42 @@ void page_write_req_stat(const buf_block_t *block);
 
 /* Txn lookup statistics */
 void txn_lookup_stat(txn_lookup_entry entry);
+
+/** The count of successful / failed  clustered index record inferences during
+ * the scan. */
+inline void index_scan_guess_clust_stat(bool hit) {
+  if (!stat_enabled) return;
+
+  if (hit) {
+    lizard_stats.index_scan_guess_clust_hit.inc();
+  } else {
+    lizard_stats.index_scan_guess_clust_miss.inc();
+  }
+}
+
+/** The count of successful / failed  clustered index record inferences during
+ * the purge. */
+inline void index_purge_guess_clust_stat(bool hit) {
+  if (!stat_enabled) return;
+
+  if (hit) {
+    lizard_stats.index_purge_guess_clust_hit.inc();
+  } else {
+    lizard_stats.index_purge_guess_clust_miss.inc();
+  }
+}
+
+/** The count of successful / failed  clustered index record inferences during
+ * locking. */
+inline void index_lock_guess_clust_stat(bool hit) {
+  if (!stat_enabled) return;
+
+  if (hit) {
+    lizard_stats.index_lock_guess_clust_hit.inc();
+  } else {
+    lizard_stats.index_lock_guess_clust_miss.inc();
+  }
+}
 
 }  // namespace lizard
 #ifdef UNIV_DEBUG

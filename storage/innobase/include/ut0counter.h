@@ -125,6 +125,11 @@ class ib_counter_t {
 
   static bool is_fast() { return (Indexer<Type, N>::fast); }
 
+  void reset() {
+    for (size_t i = 0; i < N; ++i) {
+      m_counter[m_policy.offset(i)] = 0;
+    }
+  }
   bool validate() UNIV_NOTHROW {
 #ifdef UNIV_DEBUG
     size_t n = (ut::INNODB_CACHE_LINE_SIZE / sizeof(Type));

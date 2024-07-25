@@ -904,7 +904,11 @@ dberr_t Builder::copy_columns(Copy_ctx &ctx, size_t &mv_rows_added,
           return err;
         }
       } else {
-        src_field = dtuple_get_nth_field(ctx.m_row.m_ptr, col_no);
+        if (ifield->col->ind == DATA_GPP_NO) {
+          src_field = lizard::dtuple_get_v_gfield(ctx.m_row.m_ptr);
+        } else {
+          src_field = dtuple_get_nth_field(ctx.m_row.m_ptr, col_no);
+        }
       }
 
       dfield_copy(field, src_field);

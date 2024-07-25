@@ -31,10 +31,12 @@
 #include "lizard0ha_innodb.h"
 #include "lizard0undo.h"
 #include "lizard0xa.h"
+#include "lizard0dict.h"
 
 #include <sql_class.h>
 #include "sql/xa/lizard_xa_trx.h"
 #include "lizard0erase.h"
+#include "sql/package/proc_gpp.h"
 
 /**
   Compare whether the xid in thd is the same as the xid in trx (and aslo in
@@ -193,6 +195,17 @@ void innobase_purge_status(lizard::purge_status_t &status) {
   lizard::trx_purge_status(status);
 }
 
+void innobase_flush_gpp_stat() {
+  lizard::lizard_stats.index_scan_guess_clust_hit.reset();
+  lizard::lizard_stats.index_scan_guess_clust_miss.reset();
+  lizard::lizard_stats.index_purge_guess_clust_hit.reset();
+  lizard::lizard_stats.index_purge_guess_clust_miss.reset();
+  lizard::lizard_stats.index_lock_guess_clust_hit.reset();
+  lizard::lizard_stats.index_lock_guess_clust_miss.reset();
+  lizard::Gpp_index_stat_flusher flusher;
+  dict_sys->for_each_table(flusher);
+}
+
 /**
   Initialize innobase extension.
 
@@ -219,4 +232,5 @@ void innobase_init_ext(handlerton *hton) {
       innobase_search_up_limit_tid<lizard::Snapshot_gcn_vision>;
   hton->ext.trunc_status = innobase_trunc_status;
   hton->ext.purge_status = innobase_purge_status;
+  hton->ext.flush_gpp_stat = innobase_flush_gpp_stat;
 }

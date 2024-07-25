@@ -1,0 +1,387 @@
+--source include/have_debug.inc
+
+--echo #
+--echo # Test online DDL when bringing in gpp column. (Mainly test row_log related.)
+--echo #
+
+--let $orig_opt_index_format_gpp_enabled = `SELECT @@global.opt_index_format_gpp_enabled`
+--let $orig_innodb_lizard_stat_enabled= `SELECT @@global.innodb_lizard_stat_enabled`
+--let $orig_innodb_index_purge_guess_clust_enabled= `SELECT @@global.innodb_index_purge_guess_clust_enabled`
+--let $orig_innodb_index_scan_guess_clust_enabled= `SELECT @@global.innodb_index_scan_guess_clust_enabled`
+set global innodb_lizard_stat_enabled=on;
+set global innodb_index_purge_guess_clust_enabled=on;
+set global innodb_index_scan_guess_clust_enabled=on;
+connect (con1,localhost,root,,);
+connection default;
+
+delimiter |;
+ 
+CREATE PROCEDURE table_t1_creation()
+BEGIN
+
+  DECLARE i INT DEFAULT 1;
+  DECLARE num INT DEFAULT 7;
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1 (
+    a int NOT NULL,
+    b int NOT NULL,
+    c int NOT NULL,
+    pad varchar(8192),
+    KEY (b)
+  ) ENGINE=innodb AUTO_INCREMENT=0;
+  WHILE i <= num DO
+    INSERT INTO t1 VALUES (i, i, i, REPEAT('a',3000));
+    SET i = i + 1;
+  END WHILE;
+END|
+ 
+delimiter ;|
+
+--echo # ----------------1. Basic rebuild ddl test (without row_log_table) -------------
+# Enable gpp and create table, gpp hit/miss > 0
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7
+--let $HIT_MISS_TIMES=7
+--let $HIT_TIMES=
+--let $MISS_TIMES=
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Disable gpp and rebuild table in-place, gpp hit/miss = 0
+SET opt_index_format_gpp_enabled = FALSE;
+ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7
+--let $HIT_MISS_TIMES=0
+--let $HIT_TIMES=0
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Enable gpp and rebuild table, gpp hit/miss > 0, all access to clustered should be missed.
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 DROP PRIMARY KEY, ADD PRIMARY KEY (a), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT c FROM t1 FORCE INDEX (b) WHERE b<=7
+--let $HIT_MISS_TIMES=7
+--let $HIT_TIMES=0
+--let $MISS_TIMES=7
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Disable gpp and rebuild table in-place, gpp hit/miss = 0
+SET opt_index_format_gpp_enabled = FALSE;
+ALTER TABLE t1 ADD COLUMN d INT DEFAULT 0, ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7
+--let $HIT_MISS_TIMES=0
+--let $HIT_TIMES=0
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Enable gpp and rebuild table, gpp hit/miss > 0, all access to clustered should be missed.
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 DROP COLUMN c, ADD INDEX (d), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT b FROM t1 FORCE INDEX (d) WHERE d<=1
+--let $HIT_MISS_TIMES=7
+--let $HIT_TIMES=0
+--let $MISS_TIMES=7
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+DROP TABLE t1;
+
+--echo # -------------------2. Basic non-rebuild ddl test (without row_log) -------------
+# Disable gpp and create table, gpp hit/miss = 0
+SET opt_index_format_gpp_enabled = FALSE;
+call table_t1_creation();
+
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b)  WHERE b<=7
+--let $HIT_MISS_TIMES=0
+--let $HIT_TIMES=0
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Enable gpp and add index, gpp hit/miss > 0, all access to clustered should be hit.
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 ADD INDEX(c), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT b FROM t1 FORCE INDEX (c) WHERE c<=7
+--let $HIT_MISS_TIMES=7
+--let $HIT_TIMES=7
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Disable gpp and add index, gpp hit/miss = 0.
+SET opt_index_format_gpp_enabled = FALSE;
+ALTER TABLE t1 DROP INDEX `b`, ADD INDEX `b2`(b), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT c FROM t1 FORCE INDEX (`b2`) WHERE b<=7
+--let $HIT_MISS_TIMES=0
+--let $HIT_TIMES=0
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Enable gpp and add multi-col index, gpp hit/miss > 0, all access to clustered should be hit.
+SET opt_index_format_gpp_enabled = TRUE;
+ALTER TABLE t1 ADD INDEX `mul_col`(c,b), ALGORITHM=INPLACE, LOCK=NONE;
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (`mul_col`) WHERE c<=7
+--let $HIT_MISS_TIMES=7
+--let $HIT_TIMES=7
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+DROP TABLE t1;
+
+
+--echo # ----------------3. Rebuild ddl test (within row_log_table) -------------
+--echo # -----3.1. Rebuild ddl and apply row_log_table (DEBUG_SYNC=row_log_table_apply1_before)-------------
+# Enable gpp and create table
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+
+--echo # Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_table_apply1_before SIGNAL s1 WAIT_FOR s2';
+
+--echo # Rebuild the table
+--send ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE
+
+--echo # connection con1
+connection con1;
+
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+
+# Produce row_table_log.
+UPDATE t1 SET b=8 where b=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+
+--echo # Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+
+--echo # connection default
+connection default;
+--reap
+
+# Enable gpp and rebuild table, gpp hit/miss > 0, 
+# rows from row_table_log should be hit, and rows from normal rebuilding should be missed.
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b) WHERE b>=6
+--let $HIT_MISS_TIMES=3
+--let $HIT_TIMES=2
+--let $MISS_TIMES=1
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+# ---- 3.1. End -------------------------------------------------------------------------------------------
+
+--echo # -----3.2. Rebuild ddl and apply row_log_table (DEBUG_SYNC=row_log_table_apply1_before, change opt_index_format_gpp_enabled while rebuilding)-------------
+# Enable gpp and create table
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+
+--echo # Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_table_apply1_before SIGNAL s1 WAIT_FOR s2';
+
+--echo # Rebuild the table
+--send ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE
+
+--echo # connection con1
+connection con1;
+
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+
+# Disable gpp and produce row_table_log.
+SET opt_index_format_gpp_enabled = FALSE;
+UPDATE t1 SET b=8 where b=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+
+--echo # Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+
+--echo # connection default
+connection default;
+--reap
+
+# Enable gpp and rebuild table, gpp hit/miss > 0.
+# Rows from row_table_log should be hit, and rows from normal rebuilding should be missed.
+# While the opt_index_format_gpp_enabled is changed to FALSE, the row_table_log should be applied with gpp column.
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b) WHERE b>=6
+--let $HIT_MISS_TIMES=3
+--let $HIT_TIMES=2
+--let $MISS_TIMES=1
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Disable gpp and create table
+SET opt_index_format_gpp_enabled = FALSE;
+call table_t1_creation();
+
+--echo # Make alter table wait
+SET DEBUG_SYNC = 'row_log_table_apply1_before SIGNAL s1 WAIT_FOR s2';
+
+--echo # Rebuild the table
+--send ALTER TABLE t1 ADD PRIMARY KEY (c), ALGORITHM=INPLACE, LOCK=NONE
+
+--echo # connection con1
+connection con1;
+
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+
+# Enable gpp and produce row_table_log.
+SET opt_index_format_gpp_enabled = TRUE;
+UPDATE t1 SET b=8 where b=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+
+--echo # Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+
+--echo # connection default
+connection default;
+--reap
+
+# Disable gpp and rebuild table, gpp hit/miss = 0.
+# All Rows should be missed.
+# While the opt_index_format_gpp_enabled is changed to TRUE, the row_table_log should be applied without gpp column.
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (b) WHERE b>=6
+--let $HIT_MISS_TIMES=0
+--let $HIT_TIMES=0
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+# ---- 3.2. End -------------------------------------------------------------------------------------------
+
+--echo # -------------------4. Non-rebuild ddl test (within row_log) -------------
+--echo # -----4.1. Non-rebuild ddl and apply row_log (DEBUG_SYNC=row_log_apply_before)-------------
+# Enable gpp and create table
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+
+--echo # Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_apply_before SIGNAL s1 WAIT_FOR s2';
+
+--echo # Add secondary index
+--send ALTER TABLE t1 ADD INDEX `c_b` (c,b), ALGORITHM=INPLACE, LOCK=NONE
+
+--echo # connection con1
+connection con1;
+
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+
+# Produce row_log.
+UPDATE t1 SET c=8 where c=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, 'a');
+
+--echo # Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+
+--echo # connection default
+connection default;
+--reap
+
+# Enable gpp and add index, gpp hit/miss > 0, 
+# All rows should be hit.
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (`c_b`) WHERE c>=6
+--let $HIT_MISS_TIMES=3
+--let $HIT_TIMES=3
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+# ---- 4.1. End -------------------------------------------------------------------------------------------
+
+--echo # -------------------4. Non-rebuild ddl test (within row_log) -------------
+--echo # -----4.2. Non-rebuild ddl and apply row_log (DEBUG_SYNC=row_log_apply_before)-------------
+# Enable gpp and create table
+SET opt_index_format_gpp_enabled = TRUE;
+call table_t1_creation();
+
+--echo # Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_apply_before SIGNAL s1 WAIT_FOR s2';
+
+--echo # Add secondary index
+--send ALTER TABLE t1 ADD INDEX `c_b` (c,b), ALGORITHM=INPLACE, LOCK=NONE
+
+--echo # connection con1
+connection con1;
+
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+
+# Disable gpp and produce row_log.
+SET opt_index_format_gpp_enabled = FALSE;
+UPDATE t1 SET c=8 where c=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+
+--echo # Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+
+--echo # connection default
+connection default;
+--reap
+
+# Enable gpp and add index, gpp hit/miss > 0, 
+# All rows should be hit.
+# While the opt_index_format_gpp_enabled is changed to FALSE, the row_table_log should be applied with gpp column.
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (`c_b`) WHERE c>=6
+--let $HIT_MISS_TIMES=3
+--let $HIT_TIMES=3
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+
+# Disable gpp and create table
+SET opt_index_format_gpp_enabled = FALSE;
+call table_t1_creation();
+
+--echo # Make alter table wait
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG_SYNC = 'row_log_apply_before SIGNAL s1 WAIT_FOR s2';
+
+--echo # Add secondary index
+--send ALTER TABLE t1 ADD INDEX `c_b` (c,b), ALGORITHM=INPLACE, LOCK=NONE
+
+--echo # connection con1
+connection con1;
+
+SET DEBUG_SYNC = 'now WAIT_FOR s1';
+
+# Enable gpp and produce row_log.
+SET opt_index_format_gpp_enabled = TRUE;
+UPDATE t1 SET c=8 where c=3;
+DELETE FROM t1 where c=7;
+INSERT INTO t1 VALUES (9, 9, 9, REPEAT('a',3000));
+
+--echo # Let Alter table continue
+SET DEBUG_SYNC = 'now SIGNAL s2';
+
+--echo # connection default
+connection default;
+--reap
+
+# Disable gpp and add index, gpp hit/miss = 0, 
+# All rows should be missed.
+# While the opt_index_format_gpp_enabled is changed to TRUE, the row_table_log should be applied without gpp column.
+SHOW CREATE TABLE t1;
+--let $SELECT_STATEMENTS=SELECT a FROM t1 FORCE INDEX (`c_b`) WHERE c>=6
+--let $HIT_MISS_TIMES=0
+--let $HIT_TIMES=0
+--let $MISS_TIMES=0
+--source suite/lizard/include/gpp_hit_miss_assert.inc
+# ---- 4.2. End -------------------------------------------------------------------------------------------
+
+--echo # -------------------------5. Clean up --------------------------------------------------
+--eval SET opt_index_format_gpp_enabled= $orig_opt_index_format_gpp_enabled
+--eval SET GLOBAL innodb_lizard_stat_enabled= $orig_innodb_lizard_stat_enabled
+--eval SET GLOBAL innodb_index_purge_guess_clust_enabled= $orig_innodb_index_purge_guess_clust_enabled
+--eval SET GLOBAL innodb_index_scan_guess_clust_enabled= $orig_innodb_index_scan_guess_clust_enabled
+DROP TABLE t1;
+DISCONNECT con1;
+DROP PROCEDURE table_t1_creation;
+SET DEBUG_SYNC = 'RESET';
+SET DEBUG = '';
+

@@ -1,0 +1,665 @@
+--echo #
+--echo # Test gpp options with all kinds of ddl.
+--echo #
+
+--let $orig_opt_index_format_gpp_enabled = `SELECT @@global.opt_index_format_gpp_enabled`
+--let $orig_innodb_lizard_stat_enabled= `SELECT @@global.innodb_lizard_stat_enabled`
+--let $restart_parameters=restart:--loose_innodb_lizard_stat_enabled=1
+
+set global innodb_lizard_stat_enabled=on;
+create database gpp_options;
+set opt_index_format_gpp_enabled=true;
+CREATE TABLE gpp_options.t1 (
+  a int NOT NULL,
+  b int NOT NULL,
+  c int NOT NULL,
+  pad varchar(8192),
+  primary key (a),
+  KEY (b)
+) ENGINE=InnoDB AUTO_INCREMENT=0
+PARTITION BY RANGE(a) (
+    PARTITION p0 VALUES LESS THAN (3),
+    PARTITION p1 VALUES LESS THAN (5),
+    PARTITION p2 VALUES LESS THAN (20)
+);
+--let $FULL_TABLE_NAME=t1_p0
+--let $INDEX_COL_MIN_VAL=0
+--let $INDEX_COL_MAX_VAL=3
+insert into gpp_options.t1 values (1,1,1,'11111');
+insert into gpp_options.t1 values (2,2,2,'22222');
+insert into gpp_options.t1 values (3,3,3,'33333');
+insert into gpp_options.t1 values (4,4,4,'44444');
+insert into gpp_options.t1 values (5,5,5,'55555');
+insert into gpp_options.t1 values (6,6,6,'66666');
+insert into gpp_options.t1 values (7,7,7,'77777');
+insert into gpp_options.t1 values (8,8,8,'88888');
+insert into gpp_options.t1 values (9,9,9,'99999');
+
+--echo # index b's gpp option stays true.
+--let $SCHEMA_NAME=gpp_options
+--let $TABLE_NAME=t1
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--let $NON_INDEX_COL=pad
+--source suite/lizard/include/gpp_has_options.inc
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # create new index b_c within gpp_opt =false, b_c gpp option stays false, b's gpp option stays true.
+SET opt_index_format_gpp_enabled=false;
+CREATE INDEX b_c ON gpp_options.t1(b,c);
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--echo # the following all kinds of ddl test case unit assume that at the beginning, index b has gpp and index b_c doesn't.
+# ----------------------------------------------------------------------------------------------------- #
+
+
+# ------------------------------------------------------------------------------------------------------------------------- #
+# ####
+# The following cases are testing partition.
+# ####
+# ------------------------------------------------------------------------------------------------------------------------- #
+--echo # Test export and import partition.
+CREATE DATABASE gpp_tmp;
+# First, create a table with index b and b_c both gpp enabled.
+set opt_index_format_gpp_enabled=true;
+CREATE TABLE gpp_tmp.t1 (
+  a int NOT NULL,
+  b int NOT NULL,
+  c int NOT NULL,
+  pad varchar(8192),
+  primary key (a),
+  KEY (b),
+  KEY b_c (b,c)
+) ENGINE=InnoDB AUTO_INCREMENT=0
+PARTITION BY RANGE(a) (
+    PARTITION p0 VALUES LESS THAN (3),
+    PARTITION p1 VALUES LESS THAN (5),
+    PARTITION p2 VALUES LESS THAN (20)
+);
+ALTER TABLE gpp_tmp.t1 DISCARD PARTITION p0 TABLESPACE;
+
+FLUSH TABLE gpp_options.t1 FOR EXPORT;
+LET $MYSQLD_DATADIR = `SELECT @@datadir`;
+--copy_file $MYSQLD_DATADIR/gpp_options/t1#p#p0.ibd $MYSQLTEST_VARDIR/tmp/t1#p#p0.ibd
+--copy_file $MYSQLD_DATADIR/gpp_options/t1#p#p0.cfg $MYSQLTEST_VARDIR/tmp/t1#p#p0.cfg
+UNLOCK TABLES;
+--copy_file $MYSQLTEST_VARDIR/tmp/t1#p#p0.ibd $MYSQLD_DATADIR/gpp_tmp/t1#p#p0.ibd
+--copy_file $MYSQLTEST_VARDIR/tmp/t1#p#p0.cfg $MYSQLD_DATADIR/gpp_tmp/t1#p#p0.cfg
+
+--error ER_TABLE_SCHEMA_MISMATCH
+ALTER TABLE gpp_tmp.t1 IMPORT PARTITION p0 TABLESPACE;
+
+# alter table with index b and b_c both gpp disabled.
+ALTER TABLE gpp_tmp.t1 DROP INDEX b, DROP INDEX b_c;
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_tmp.t1 ADD INDEX b_c (b,c), ADD INDEX b (b);
+--error ER_TABLE_SCHEMA_MISMATCH
+ALTER TABLE gpp_tmp.t1 IMPORT PARTITION p0 TABLESPACE;
+
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_tmp.t1 DROP INDEX b;
+ALTER TABLE gpp_tmp.t1 ADD INDEX b (b);
+
+--remove_file $MYSQLD_DATADIR/gpp_tmp/t1#p#p0.cfg
+--error ER_TABLE_CFG_MISSING
+ALTER TABLE gpp_tmp.t1 IMPORT PARTITION p0 TABLESPACE;
+--copy_file $MYSQLTEST_VARDIR/tmp/t1#p#p0.cfg $MYSQLD_DATADIR/gpp_tmp/t1#p#p0.cfg
+ALTER TABLE gpp_tmp.t1 IMPORT PARTITION p0 TABLESPACE;
+
+--remove_file $MYSQLTEST_VARDIR/tmp/t1#p#p0.cfg
+--remove_file $MYSQLTEST_VARDIR/tmp/t1#p#p0.ibd
+DROP DATABASE gpp_tmp;
+
+--echo # Test ADD PARTITION
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD PARTITION (PARTITION p3 VALUES LESS THAN (30));
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+insert into gpp_options.t1 values (25,25,25,'25252525');
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test DROP PARTITION
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP PARTITION p3;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test TRUNCATE PARTITION
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 TRUNCATE PARTITION p2;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test REORGANIZE PARTITION
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 REORGANIZE PARTITION p1 INTO (PARTITION p1 VALUES LESS THAN (4), PARTITION p1a VALUES LESS THAN (5));
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test EXCHANGE PARTITION
+#Before exchange, p2's indexes all have gpp.
+insert into gpp_options.t1 values (9,9,9,'99999');
+--let $FULL_TABLE_NAME=t1_p2
+--let $TABLE_NAME=t1
+--let $INDEX_COL_MIN_VAL=5
+--let $INDEX_COL_MAX_VAL=20
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+SET opt_index_format_gpp_enabled=false;
+create table gpp_options.exchange_table (a int, b int not null, c int not null, pad varchar(8192), primary key (a),key (b),key `b_c` (b,c)) engine=innodb;
+insert into gpp_options.exchange_table values (8,8,8,'88888');
+ALTER TABLE gpp_options.t1 EXCHANGE PARTITION p2 WITH TABLE gpp_options.exchange_table WITHOUT VALIDATION;
+--let $FULL_TABLE_NAME=
+--let $TABLE_NAME=exchange_table
+--let $INDEX_COL_MIN_VAL=0
+--let $INDEX_COL_MAX_VAL=100
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+--let $FULL_TABLE_NAME=t1_p2
+--let $TABLE_NAME=t1
+--let $INDEX_COL_MIN_VAL=5
+--let $INDEX_COL_MAX_VAL=20
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $FULL_TABLE_NAME=t1_p2
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+# p0 doesn't change
+--let $FULL_TABLE_NAME=t1_p0
+--let $INDEX_COL_MIN_VAL=0
+--let $INDEX_COL_MAX_VAL=3
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+DROP TABLE gpp_options.exchange_table;
+
+--echo # Test ANALYZE PARTITION
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 ANALYZE PARTITION p0;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test CHECK PARTITION
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 CHECK PARTITION p0;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test OPTIMIZE PARTITION
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 OPTIMIZE PARTITION p0;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test REBUILD PARTITION
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 REBUILD PARTITION p0;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test REPAIR PARTITION
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 REPAIR PARTITION p0;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Test REMOVE PARTITIONING
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 REMOVE PARTITIONING;
+--let $FULL_TABLE_NAME=
+--let $TABLE_NAME=t1
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+
+# ------------------------------------------------------------------------------------------------------------------------- #
+# ####
+# The following cases are from gpp_options.test
+# ####
+# ------------------------------------------------------------------------------------------------------------------------- #
+
+DROP TABLE gpp_options.t1;
+set opt_index_format_gpp_enabled=true;
+CREATE TABLE gpp_options.t1 (
+  a int NOT NULL,
+  b int NOT NULL,
+  c int NOT NULL,
+  pad varchar(8192),
+  primary key (a),
+  KEY (b)
+) ENGINE=InnoDB AUTO_INCREMENT=0
+PARTITION BY RANGE(a) (
+    PARTITION p0 VALUES LESS THAN (3),
+    PARTITION p1 VALUES LESS THAN (5),
+    PARTITION p2 VALUES LESS THAN (20)
+);
+--let $FULL_TABLE_NAME=t1_p0
+insert into gpp_options.t1 values (1,1,1,'11111');
+insert into gpp_options.t1 values (2,2,2,'22222');
+insert into gpp_options.t1 values (3,3,3,'33333');
+insert into gpp_options.t1 values (4,4,4,'44444');
+insert into gpp_options.t1 values (5,5,5,'55555');
+insert into gpp_options.t1 values (6,6,6,'66666');
+insert into gpp_options.t1 values (7,7,7,'77777');
+insert into gpp_options.t1 values (8,8,8,'88888');
+insert into gpp_options.t1 values (9,9,9,'99999');
+SET opt_index_format_gpp_enabled=false;
+CREATE INDEX b_c ON gpp_options.t1(b,c);
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Modify column b's data type, indexes b and b_c will be rebuilt.
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 MODIFY COLUMN b BIGINT;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 MODIFY COLUMN b INT;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+# Restore the original state of index b
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP INDEX b;
+ALTER TABLE gpp_options.t1 ADD INDEX b (b);
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+# ----------------------------------------------------------------------------------------------------- #
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Add CHECK constraint, only support Algorithm=copy, indexes b and b_c will be rebuilt.
+--echo # Drop CHECK constraint, support Algorithm=inplate, indexes b and b_c stay stable.
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 ADD CONSTRAINT chk_b CHECK (b > 0);
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP CHECK chk_b;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+# Restore the original state of the indexes
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP INDEX b;
+ALTER TABLE gpp_options.t1 ADD INDEX b (b);
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+# ----------------------------------------------------------------------------------------------------- #
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Add a virtual column, indexes b and b_c stay stable. Default algorithm is INSTANT (if possible).
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD COLUMN v_col INT AS (a + b) VIRTUAL;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Change the expression of the virtual column, default algorithm is copy
+ALTER TABLE gpp_options.t1 MODIFY COLUMN v_col INT AS (a * b) VIRTUAL;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+--echo # Drop the virtual column, default algorithm is INSTANT (if possible)
+ALTER TABLE gpp_options.t1 DROP COLUMN v_col;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+# Restore the original state of the indexes
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX b_c;
+ALTER TABLE gpp_options.t1 ADD INDEX b_c (b, c);
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+# ----------------------------------------------------------------------------------------------------- #
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Add and drop an AUTO_INCREMENT column as a non-primary key, indexes b and b_c stay stable.
+--echo # Default algorithm is INPLACE (if possible).
+# Step 1: Add new AUTO_INCREMENT column without making it a primary key. Rebuild the whole table.
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 
+  ADD COLUMN tmp_ai INT AUTO_INCREMENT, 
+  ADD UNIQUE INDEX tmp_ai_idx(tmp_ai,a), ALGORITHM=INPLACE;
+--let $INDEX_NAME=tmp_ai_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=tmp_ai
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=tmp_ai_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=tmp_ai
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+# Step 2: Drop the AUTO_INCREMENT column and the unique index, rebuild the whole table.
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 
+  DROP INDEX tmp_ai_idx, 
+  DROP COLUMN tmp_ai, ALGORITHM=INPLACE;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+# Restore the original state of the indexes
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP INDEX b;
+ALTER TABLE gpp_options.t1 ADD INDEX b (b);
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+# ----------------------------------------------------------------------------------------------------- #
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Toggle index visibility and verify the GPP option for index b and b_c.
+
+# Step 1: Set the original state and create a new invisible index.
+SET opt_index_format_gpp_enabled=true;
+CREATE INDEX tmp_idx ON gpp_options.t1(c) INVISIBLE;
+--let $INDEX_NAME=tmp_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=tmp_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+# Step 2: Change index tmp_idx to visible.
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 ALTER INDEX tmp_idx VISIBLE;
+--let $INDEX_NAME=tmp_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=c
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=tmp_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=c
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+# Step 3: Change index b to invisible.
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 ALTER INDEX b INVISIBLE;
+--let $INDEX_NAME=tmp_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=c
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $INDEX_NAME=tmp_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=c
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+
+# Step 4: Restore
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP INDEX tmp_idx;
+ALTER TABLE gpp_options.t1 ALTER INDEX b VISIBLE;
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+# ----------------------------------------------------------------------------------------------------- #
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Rename table, ensure indexes b and b_c are not affected.
+SET opt_index_format_gpp_enabled=true;
+RENAME TABLE gpp_options.t1 TO gpp_options.t1_renamed;
+--let FULL_TABLE_NAME=t1_renamed_p0
+--let $TABLE_NAME=t1_renamed
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--source include/restart_mysqld.inc
+--let $TABLE_NAME=t1_renamed
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+SET opt_index_format_gpp_enabled=false;
+RENAME TABLE gpp_options.t1_renamed TO gpp_options.t1;
+--let FULL_TABLE_NAME=t1_p0
+--let $TABLE_NAME=t1
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+# ----------------------------------------------------------------------------------------------------- #
+
+--echo # ------------------------- Clean up --------------------------------------------------
+--eval SET opt_index_format_gpp_enabled= $orig_opt_index_format_gpp_enabled
+--eval SET GLOBAL innodb_lizard_stat_enabled= $orig_innodb_lizard_stat_enabled
+--let $FULL_TABLE_NAME=
+drop database gpp_options;
+

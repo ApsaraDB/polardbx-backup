@@ -40,6 +40,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "row0pread-histogram.h"
 #include "trx0trx.h"
 
+namespace lizard {
+class Ha_ddl_policy;
+}
+
 /** "GEN_CLUST_INDEX" is the name reserved for InnoDB default
 system clustered index when there is no primary key. */
 extern const char innobase_index_reserve_name[];
@@ -682,6 +686,8 @@ class ha_innobase : public handler {
 public:
  virtual void get_create_info(const char *table, const dd::Table *table_def,
                               HA_CREATE_INFO *create_info) override;
+
+  virtual bool support_index_format() const override { return true; }
 };
 
 struct trx_t;
@@ -866,7 +872,8 @@ class create_table_info_t {
   @param[in]    old_part_table  dd::Table from an old partition for partitioned
                                 table, NULL otherwise.
   @return 0 or error number */
-  int create_table(const dd::Table *dd_table, const dd::Table *old_part_table);
+  int create_table(const dd::Table *dd_table, const dd::Table *old_part_table,
+                   lizard::Ha_ddl_policy *ddl_policy);
 
   /** Update the internal data dictionary. */
   int create_table_update_dict();
@@ -876,7 +883,8 @@ class create_table_info_t {
   @retval       0               On success
   @retval       error number    On failure */
   template <typename Table>
-  int create_table_update_global_dd(Table *dd_table);
+  int create_table_update_global_dd(Table *dd_table,
+                                    const lizard::Ha_ddl_policy *ddl_policy);
 
   /** Validates the create options. Checks that the options
   KEY_BLOCK_SIZE, ROW_FORMAT, DATA DIRECTORY, TEMPORARY & TABLESPACE

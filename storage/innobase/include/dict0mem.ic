@@ -53,11 +53,17 @@ static inline void dict_mem_fill_index_struct(
     index->name = mem_heap_strdup(heap, index_name);
     index->fields = (dict_field_t *)mem_heap_alloc(
         heap, 1 + n_fields * sizeof(dict_field_t));
+    index->v_gfield =
+        (dict_field_t *)mem_heap_alloc(heap, sizeof(dict_field_t));
   } else {
     index->name = index_name;
     index->heap = nullptr;
     index->fields = nullptr;
+    index->v_gfield = nullptr;
   }
+
+  index->n_v_gfields = 0;
+  index->n_s_gfields = 0;
 
   /* Assign a ulint to a 4-bit-mapped field.
   Only the low-order 4 bits are assigned. */

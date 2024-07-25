@@ -45,6 +45,7 @@
 
 #include "sql/lizard/undo_proc.h"
 #include "sql/xa/lizard_xa_proc.h"
+#include "sql/package/proc_gpp.h"
 
 namespace im {
 
@@ -195,6 +196,9 @@ void package_context_init() {
 
   /* dbms_trans.rollback_to_implicit_savepoint() */
   register_package<Proc, Trans_proc_implicit_savepoint>(TRANS_PROC_SCHEMA);
+
+  /* dbms_stat.flush_gpp() */
+  register_package<Proc, Proc_index_stat_flush_gpp>(PROC_STAT_SCHEMA);
 }
 
 } /* namespace im */

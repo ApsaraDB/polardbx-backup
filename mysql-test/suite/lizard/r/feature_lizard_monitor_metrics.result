@@ -89,3 +89,9 @@ Lizard_buffer_pool_flush_background_pages	#
 Lizard_txn_undo_log_recycle	#
 Lizard_commit_snapshot_scn_search_hit	#
 Lizard_commit_snapshot_gcn_search_hit	#
+Lizard_index_scan_guess_clust_hit	#
+Lizard_index_scan_guess_clust_miss	#
+Lizard_index_purge_guess_clust_hit	#
+Lizard_index_purge_guess_clust_miss	#
+Lizard_index_lock_guess_clust_hit	#
+Lizard_index_lock_guess_clust_miss	#

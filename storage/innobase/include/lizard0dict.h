@@ -32,15 +32,19 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 #ifndef lizard0dict_h
 #define lizard0dict_h
-#include "univ.i"
 
+#include "sql/dd/object_id.h"
+#include "sql/package/gpp_stat.h"
+
+#include "ddl0ddl.h"
+#include "univ.i"
 #include "api0api.h"
 #include "dict0dict.h"
 #include "mem0mem.h"
-#include "sql/dd/object_id.h"
 
 #include "lizard0txn0types.h"
 #include "lizard0undo0types.h"
+#include "lizard0dd0policy.h"
 
 struct dict_table_t;
 struct dict_index_t;
@@ -120,6 +124,24 @@ void dict_table_add_lizard_columns(dict_table_t *table, mem_heap_t *heap);
 */
 void dd_add_lizard_columns(dd::Table *dd_table, dd::Index *primary);
 
+/** Add virtual GPP_NO column on index as virtual column.
+ *
+ * @param[in/out]	index
+ * @param[in]		table
+ * */
+void dict_index_add_virtual_gcol(dict_index_t *index,
+                                 const dict_table_t *table);
+
+/** Add stored GPP_NO column on secondary index following PK Columns.
+ *
+ * @param[in/out]	new index.
+ * @param[in]		index.
+ * @param[in]		dictionary table
+ */
+void dict_index_add_stored_gcol(dict_index_t *new_index,
+                                const dict_index_t *index,
+                                const dict_table_t *table);
+
 /**
   Init txn_desc with the creator trx when created.
 
@@ -148,6 +170,108 @@ bool dd_index_fill_txn_desc(dict_index_t *index, const dd::Properties &p);
 bool dd_index_modificatsion_visible(dict_index_t *index, const trx_t *trx,
                                     lizard::Snapshot_vision *snapshot_vision);
 
+/**
+ * Return prefined dict_table_t GPP_NO column.
+ *
+ * @return	always valid column. */
+dict_col_t *dict_table_get_v_gcol(const dict_table_t *table);
+
+/**
+ * Copy column definition
+ *
+ * @param[in/out]	tuple
+ * @Param[in]		dict_table_t */
+void dict_table_copy_g_types(dtuple_t *tuple, const dict_table_t *table);
+
+/** Collect gpp stats of each index. */
+class Collector {
+ public:
+  Collector(std::vector<im::Index_gpp_stat> &stats) : m_stats(stats) {}
+
+  Collector() = delete;
+
+  /** Visitor.
+  @param[in]      table   table to visit */
+  void operator()(dict_table_t *table) {
+    for (dict_index_t *index : table->indexes) {
+      if (index->n_s_gfields == 0) {
+        continue;
+      }
+
+      ut_ad(index->is_gstored());
+
+      m_stats.emplace_back(im::Index_gpp_stat{table->name.m_name,
+                                              (const char *)index->name,
+                                              index->gpp_hit, index->gpp_miss});
+    }
+  }
+
+ private:
+  std::vector<im::Index_gpp_stat> &m_stats;
+};
+
+class Gpp_index_stat_flusher {
+ public:
+  Gpp_index_stat_flusher() = default;
+  void operator()(dict_table_t *table) {
+    for (dict_index_t *index : table->indexes) {
+      if (index->n_s_gfields == 0) {
+        continue;
+      }
+
+      ut_ad(index->is_gstored());
+      index->gpp_hit.reset();
+      index->gpp_miss.reset();
+    }
+  }
+};
+
+/**
+  Get ordered field number from sec index for row log.
+  @param[in]      index     dict_index_t
+  @retval ordered field number
+*/
+ulint row_log_dict_index_get_ordered_n_fields(const dict_index_t *index);
+
+/**
+  Instantiate index related metadata about GPP...
+  @param[in]      index_policy  index config info about GPP
+  @param[in]      table         InnoDB table definition
+  @param[in,out]  index         dict_index_t to fill
+*/
+extern void dd_fill_dict_index_format(const Index_policy &index_policy,
+                                      const dict_table_t *table,
+                                      dict_index_t *index);
+
+/**
+  Write lizard metadata of a index to dd::Index for regular table or
+  dd::Partition_index for partition tables.
+
+  @param[in,out]  dd_options  dd_options which might carry GPP info
+  @param[in]      index           InnoDB index object
+*/
+extern void dd_write_index_format(dd::Properties *dd_options,
+                                  const dict_index_t *index,
+                                  const Ha_ddl_policy *ddl_policy);
+
+/**
+  Copy lizard metadata of a index to dd::Index for regular table or
+  dd::Partition_index for partition tables.
+
+  @param[out]     new_dd_options  new dd options to be modified.
+  @param[in]      old_dd_options  old dd options from DD
+*/
+extern void dd_copy_index_format(dd::Properties &new_dd_options,
+                                 const dd::Properties &old_dd_options);
+
+/**
+  Exchange IFT option between Partition Index and Swap Index.
+  @param[in,out]   part_dd_options  dd options from dd::Partition_index
+  @param[in,out]   swap_dd_options  dd options from dd::Index from Swap Table
+*/
+extern void dd_exchange_index_format(dd::Properties &part_dd_options,
+                                     dd::Properties &swap_dd_options);
+
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
 /**
   Check the dict_table_t object
@@ -169,6 +293,17 @@ bool lizard_dict_table_check(const dict_table_t *table);
 bool lizard_dict_index_check(const dict_index_t *index,
                              bool check_table = true);
 
+/**
+  Validate IFT option from dd::Index or dd::Partition_index is equal to infos in
+  dict_index_t.
+
+  @param[in]      dd_options  dd_options from dd::Index or dd::Partition_index
+  @param[in]      index       InnoDB index object
+  @return false if totally equal, true if not equal.
+*/
+extern bool validate_dd_index_format_match(const dd::Properties &options,
+                                           const dict_index_t *index);
+
 #endif /* UNIV_DEBUG || LIZARD_DEBUG define */
 
 }  // namespace lizard
@@ -189,11 +324,19 @@ bool lizard_dict_index_check(const dict_index_t *index,
     ut_a(lizard::lizard_dict_index_check(index, false));     \
   } while (0)
 
+/* Assert the n_s_gfields and gpp_stored are matched. */
+#define assert_lizard_dict_index_gstored_check(index)         \
+  do {                                                        \
+    ut_ad((index->n_s_gfields > 0 && index->is_gstored()) ||  \
+          (index->n_s_gfields == 0 && !index->is_gstored())); \
+  } while (0)
+
 #else
 
 #define assert_lizard_dict_table_check(table)
 #define assert_lizard_dict_index_check(index)
 #define assert_lizard_dict_index_check_no_check_table(index)
+#define assert_lizard_dict_index_gstored_check(index)
 
 #endif /* UNIV_DEBUG || lizard_DEBUG define */
 

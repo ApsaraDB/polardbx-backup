@@ -58,6 +58,10 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ut0new.h"
 #include "ut0rnd.h"
 
+namespace lizard {
+class Index_policy;
+}
+
 #define dict_sys_mutex_enter() mutex_enter(&dict_sys->mutex)
 
 #define dict_sys_mutex_exit() mutex_exit(&dict_sys->mutex)
@@ -1091,7 +1095,7 @@ struct dict_sys_t {
   /** Check if a table is permanent in dict sys.
   @param[in]    table      table object
   @retval true  if the table is permanent in dict sys, otherwise false */
-  bool is_permanent_table(dict_table_t *table) {
+  bool is_permanent_table(const dict_table_t *table) {
     return (table == table_stats || table == index_stats || table == ddl_log ||
             table == dynamic_metadata || table == scn_hist);
   }

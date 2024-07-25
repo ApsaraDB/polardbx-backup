@@ -3254,7 +3254,7 @@ buf_page_t *buf_page_get_zip(const page_id_t &page_id,
     /* Page not in buf_pool: needs to be read from file */
 
     ut_ad(!hash_lock);
-    buf_read_page(page_id, page_size);
+    buf_read_page(page_id, page_size, 0);
 
 #if defined UNIV_DEBUG || defined UNIV_BUF_DEBUG
     ut_a(++buf_dbg_counter % 5771 || buf_validate());
@@ -3698,6 +3698,27 @@ dberr_t Buf_fetch_other::get(buf_block_t *&block) noexcept {
         continue;
       }
 
+      if (m_mode == Page_fetch::GPP_FETCH) {
+        ut_d(enum buf_page_state page_state = buf_block_get_state(block));
+        ut_ad(page_state != BUF_BLOCK_ZIP_PAGE &&
+              page_state != BUF_BLOCK_ZIP_DIRTY);
+        /* Similar to is_optimistic(), GPP_FETCH will immediately return if
+         * block is in bp but io_fix_status is BUF_IO_READ, in consequence of
+         * avoiding GPP_FETCH tries to fetch page which is out of space
+         * concurrently. However, different from is_optimistic(), GPP_FETCH need
+         * to avoid increasing buf_fix_count, because function
+         * buf_read_page_handle_error() requires buf_fix_count is 0. */
+
+        /* This unlocked read of IO fix is safe as we have the hash lock and gpp
+         * doesn't support compressed tables . */
+        if (block->page.was_io_fix_read()) {
+          block = nullptr;
+          rw_lock_s_unlock(m_hash_lock);
+          DEBUG_SYNC_C("gpp_hit_io_fix_read");
+          return DB_NOT_FOUND;
+        }
+      }
+
       if (m_is_temp_space) {
         temp_space_page_handler(block);
       } else {
@@ -3730,6 +3751,12 @@ dberr_t Buf_fetch_other::get(buf_block_t *&block) noexcept {
 
     /* Page not in buf_pool: needs to be read from file */
     read_page();
+
+    /* In GPP_FETCH mode, failure of read_page() means that GPP no is out of
+     * space. In this case, we return immediately without retries. */
+    if (m_mode == Page_fetch::GPP_FETCH && m_retries > 0) {
+      return DB_NOT_FOUND;
+    }
   }
 
   return (DB_SUCCESS);
@@ -4032,7 +4059,11 @@ void Buf_fetch<T>::read_page() {
   auto sync = m_mode != Page_fetch::SCAN;
 
   if (sync) {
-    success = buf_read_page(m_page_id, m_page_size);
+    ulint type = 0;
+    if (m_mode == Page_fetch::GPP_FETCH) {
+      type |= IORequest::IGNORE_MISSING;
+    }
+    success = buf_read_page(m_page_id, m_page_size, type);
   } else {
     dberr_t err;
 
@@ -4312,7 +4343,7 @@ buf_block_t *Buf_fetch<T>::single_page() {
 #endif /* UNIV_DEBUG */
 
   ut_ad(m_mode == Page_fetch::POSSIBLY_FREED ||
-        !block->page.file_page_was_freed);
+        m_mode == Page_fetch::GPP_FETCH || !block->page.file_page_was_freed);
 
   /* Check if this is the first access to the page */
   const auto access_time = buf_page_is_accessed(&block->page);
@@ -4402,6 +4433,7 @@ buf_block_t *buf_page_get_gen(const page_id_t &page_id,
     case Page_fetch::PEEK_IF_IN_POOL:
     case Page_fetch::IF_IN_POOL_OR_WATCH:
     case Page_fetch::POSSIBLY_FREED:
+    case Page_fetch::GPP_FETCH:
       break;
     default:
       ib::fatal(UT_LOCATION_HERE, ER_IB_ERR_UNKNOWN_PAGE_FETCH_MODE)
@@ -5324,6 +5356,8 @@ void buf_read_page_handle_error(buf_page_t *bpage) {
   /* First unfix and release lock on the bpage */
   mutex_enter(&buf_pool->LRU_list_mutex);
 
+  DEBUG_SYNC_C("gpp_ignore_missing_before_free_page");
+
   rw_lock_t *hash_lock = buf_page_hash_lock_get(buf_pool, bpage->id);
 
   rw_lock_x_lock(hash_lock, UT_LOCATION_HERE);
@@ -5347,6 +5381,8 @@ void buf_read_page_handle_error(buf_page_t *bpage) {
         !rw_lock_own(hash_lock, RW_LOCK_S));
 
   mutex_exit(&buf_pool->LRU_list_mutex);
+
+  DEBUG_SYNC_C("gpp_ignore_missing_after_free_page");
 
   ut_ad(buf_pool->n_pend_reads > 0);
   buf_pool->n_pend_reads.fetch_sub(1);

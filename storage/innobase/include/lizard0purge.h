@@ -162,6 +162,22 @@ bool purged_scn_validation();
 
 extern void trx_purge_start_history();
 
+/**
+ Optimistically repositions the `pcur` in the purge node to the clustered
+ index record. This method uses extra GPP information from the secondary index
+ record to attempt an optimistic repositioning without a top-down B-tree search.
+ If repositioning fails, it defaults to `row_purge_reposition_pcur()`, which
+ conducts a top-down B-tree search to reposition the `pcur`.
+
+ * @param[in] mode       Search mode, should be BTR_SEARCH_LEAF
+ * @param[in,out] node   Purge node
+ * @param[in] sec_cursor Cursor for the secondary index
+ * @param[in] mtr        Mini-transaction
+ * @return True if the cluster index record was successfully positioned
+ */
+bool row_purge_optimistic_reposition_pcur(ulint mode, purge_node_t *node,
+                                          btr_cur_t *sec_cursor, mtr_t *mtr);
+
 }  // namespace lizard
 
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG

@@ -57,6 +57,13 @@ constexpr uint8_t INDEX_LOG_VERSION_MAX = INDEX_LOG_VERSION_CURRENT;
 #define SET_VERSIONED(flags) (flag |= VERSION_FLAG)
 #define SET_COMPACT(flags) (flag |= COMPACT_FLAG)
 
+/* Lizard-4.0: Secondary index Lizard Fields Flag */
+#define SEC_LFIELDS_FLAG 0x80
+
+#define IS_SEC_LFIELDS(flags) (flags & SEC_LFIELDS_FLAG)
+
+#define SET_SEC_LFILEDS(flags) (flag |= SEC_LFIELDS_FLAG)
+
 /* Size of initial info on REDO log
   1   byte  for LOG TYPE
   3-5 bytes for SPACE ID

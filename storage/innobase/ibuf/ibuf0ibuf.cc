@@ -281,6 +281,9 @@ constexpr uint32_t IBUF_REC_OFFSET_FLAGS = 3;
 /** Set in IBUF_REC_OFFSET_FLAGS if the user index is in COMPACT format or later
  */
 constexpr uint32_t IBUF_REC_COMPACT = 0x1;
+/* Lizard-4.0: Set in IBUF_REC_OFFSET_FLAGS if the user sec index has gpp col.
+ */
+constexpr uint32_t IBUF_REC_GPP_STORED = 0x80;
 /** The mutex used to block pessimistic inserts to ibuf trees */
 static ib_mutex_t ibuf_pessimistic_insert_mutex;
 
@@ -1083,10 +1086,11 @@ static inline space_id_t ibuf_rec_get_space(mtr_t *mtr [[maybe_unused]],
  @param[in,out] comp            Compact flag, or NULL
  @param[in,out] info_len        Length of info fields at the start of the fourth
  field, or NULL
- @param[in]     counter         Counter value, or NULL */
+ @param[in,out] counter         Counter value, or NULL
+ @param[in,out] gpp_stored      GPP stored flag, or NULL */
 static void ibuf_rec_get_info_func(IF_DEBUG(mtr_t *mtr, ) const rec_t *rec,
                                    ibuf_op_t *op, bool *comp, ulint *info_len,
-                                   ulint *counter) {
+                                   ulint *counter, bool *gpp_stored) {
   const byte *types;
   ulint fields;
   ulint len;
@@ -1096,6 +1100,7 @@ static void ibuf_rec_get_info_func(IF_DEBUG(mtr_t *mtr, ) const rec_t *rec,
   bool comp_local;
   ulint info_len_local;
   ulint counter_local;
+  bool gpp_stored_local = false;
 
   ut_ad(mtr == nullptr ||
         mtr_memo_contains_page(mtr, rec, MTR_MEMO_PAGE_X_FIX) ||
@@ -1120,6 +1125,7 @@ static void ibuf_rec_get_info_func(IF_DEBUG(mtr_t *mtr, ) const rec_t *rec,
     case IBUF_REC_INFO_SIZE:
       op_local = (ibuf_op_t)types[IBUF_REC_OFFSET_TYPE];
       comp_local = types[IBUF_REC_OFFSET_FLAGS] & IBUF_REC_COMPACT;
+      gpp_stored_local = types[IBUF_REC_OFFSET_FLAGS] & IBUF_REC_GPP_STORED;
       counter_local = mach_read_from_2(types + IBUF_REC_OFFSET_COUNTER);
       break;
 
@@ -1146,12 +1152,17 @@ static void ibuf_rec_get_info_func(IF_DEBUG(mtr_t *mtr, ) const rec_t *rec,
   if (counter) {
     *counter = counter_local;
   }
+
+  if (gpp_stored) {
+    *gpp_stored = gpp_stored_local;
+  }
 }
 
 inline void ibuf_rec_get_info(mtr_t *mtr [[maybe_unused]], const rec_t *rec,
                               ibuf_op_t *op, bool *comp, ulint *info_len,
                               ulint *counter) {
-  ibuf_rec_get_info_func(IF_DEBUG(mtr, ) rec, op, comp, info_len, counter);
+  ibuf_rec_get_info_func(IF_DEBUG(mtr, ) rec, op, comp, info_len, counter,
+                         nullptr);
 }
 
 /** Returns the operation type field of an ibuf record.
@@ -1176,7 +1187,8 @@ static ibuf_op_t ibuf_rec_get_op_type_func(IF_DEBUG(mtr_t *mtr, )
   } else {
     ibuf_op_t op;
 
-    ibuf_rec_get_info_func(IF_DEBUG(mtr, ) rec, &op, nullptr, nullptr, nullptr);
+    ibuf_rec_get_info_func(IF_DEBUG(mtr, ) rec, &op, nullptr, nullptr, nullptr,
+                           nullptr);
 
     return (op);
   }
@@ -1271,8 +1283,9 @@ static void ibuf_print_ops(
 /** Creates a dummy index for inserting a record to a non-clustered index.
  @return dummy index */
 static dict_index_t *ibuf_dummy_index_create(
-    ulint n,   /*!< in: number of fields */
-    bool comp) /*!< in: true=use compact record format */
+    ulint n,         /*!< in: number of fields */
+    bool comp,       /*!< in: true=use compact record format */
+    bool gpp_stored) /* !< in: true=has GPP column in the index */
 {
   dict_table_t *table;
   dict_index_t *index;
@@ -1287,6 +1300,11 @@ static dict_index_t *ibuf_dummy_index_create(
 
   /* avoid ut_ad(index->cached) in dict_index_get_n_unique_in_tree */
   index->cached = true;
+
+  if (gpp_stored) {
+    index->gpp_stored = true;
+    index->n_s_gfields = 1;
+  }
 
   return (index);
 }
@@ -1343,6 +1361,7 @@ static dtuple_t *ibuf_build_entry_from_ibuf_rec_func(IF_DEBUG(mtr_t *mtr, )
   ulint info_len;
   ulint i;
   bool comp;
+  bool gpp_stored;
   dict_index_t *index;
 
   ut_ad(mtr_memo_contains_page(mtr, ibuf_rec, MTR_MEMO_PAGE_X_FIX) ||
@@ -1363,9 +1382,11 @@ static dtuple_t *ibuf_build_entry_from_ibuf_rec_func(IF_DEBUG(mtr_t *mtr, )
       rec_get_nth_field_old(nullptr, ibuf_rec, IBUF_REC_FIELD_METADATA, &len);
 
   ibuf_rec_get_info_func(IF_DEBUG(mtr, ) ibuf_rec, nullptr, &comp, &info_len,
-                         nullptr);
+                         nullptr, &gpp_stored);
 
-  index = ibuf_dummy_index_create(n_fields, comp);
+  index = ibuf_dummy_index_create(n_fields, comp, gpp_stored);
+  dtuple_set_n_fields_cmp(
+      tuple, lizard::ibuf_dtuple_get_ordered_n_fields(tuple, index));
 
   len -= info_len;
   types += info_len;
@@ -1473,7 +1494,7 @@ static ulint ibuf_rec_get_volume_func(IF_DEBUG(mtr_t *mtr, )
       rec_get_nth_field_old(nullptr, ibuf_rec, IBUF_REC_FIELD_METADATA, &len);
 
   ibuf_rec_get_info_func(IF_DEBUG(mtr, ) ibuf_rec, &op, &comp, &info_len,
-                         nullptr);
+                         nullptr, nullptr);
 
   if (op == IBUF_OP_DELETE_MARK || op == IBUF_OP_DELETE) {
     /* Delete-marking a record doesn't take any
@@ -1629,6 +1650,10 @@ static dtuple_t *ibuf_entry_build(
       ti[IBUF_REC_OFFSET_TYPE] = (byte)op;
       ti[IBUF_REC_OFFSET_FLAGS] =
           dict_table_is_comp(index->table) ? IBUF_REC_COMPACT : 0;
+      if (index->n_s_gfields > 0) {
+        ut_ad(index->n_s_gfields == 1);
+        ti[IBUF_REC_OFFSET_FLAGS] |= IBUF_REC_GPP_STORED;
+      }
       ti += IBUF_REC_INFO_SIZE;
       break;
   }
@@ -3547,7 +3572,8 @@ static void ibuf_insert_to_index_page(
           dtuple_get_n_fields(entry) * (sizeof(upd_field_t) + sizeof *offsets),
       UT_LOCATION_HERE);
 
-  if (UNIV_UNLIKELY(low_match == dtuple_get_n_fields(entry))) {
+  if (UNIV_UNLIKELY(low_match ==
+                    lizard::ibuf_dtuple_get_ordered_n_fields(entry, index))) {
     upd_t *update;
     page_zip_des_t *page_zip;
 
@@ -3660,8 +3686,7 @@ static void ibuf_set_del_mark(
   ut_ad(dtuple_check_typed(entry));
 
   low_match = page_cur_search(block, index, entry, &page_cur);
-
-  if (low_match == dtuple_get_n_fields(entry)) {
+  if (low_match == lizard::ibuf_dtuple_get_ordered_n_fields(entry, index)) {
     rec_t *rec;
     page_zip_des_t *page_zip;
 

@@ -82,7 +82,11 @@ enum class Page_fetch {
 
   /** Like Page_fetch::NORMAL, but do not mind if the file page has been
   freed. */
-  POSSIBLY_FREED
+  POSSIBLY_FREED,
+
+  /** Like Page_fetch::POSSIBLY_FREED, but do not mind if the page id is out of
+     tablespace. */
+  GPP_FETCH,
 };
 /** @} */
 

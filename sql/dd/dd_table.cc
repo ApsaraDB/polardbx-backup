@@ -2239,12 +2239,6 @@ static bool fill_dd_table_from_create_info(
                                          create_fields, thd->work_part_info))
     return true;
 
-  if (thd->variables.opt_flashback_area) {
-    lizard::dd_table_set_flashback_area(
-        tab_obj,
-        dd::get_dictionary()->is_dd_table_name(schema_name, table_name));
-  }
-
   return false;
 }
 

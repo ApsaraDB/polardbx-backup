@@ -1004,7 +1004,7 @@ retry_page_get:
         ut_ad(fetch == Page_fetch::IF_IN_POOL_OR_WATCH);
         ut_ad(!dict_index_is_spatial(index));
 
-        if (!row_purge_poss_sec(cursor->purge_node, index, tuple)) {
+        if (!row_purge_poss_sec(cursor->purge_node, index, tuple, nullptr)) {
           /* The record cannot be purged yet. */
           cursor->flag = BTR_CUR_DELETE_REF;
         } else if (ibuf_insert(IBUF_OP_DELETE, tuple, index, page_id, page_size,

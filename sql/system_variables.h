@@ -524,6 +524,8 @@ struct System_variables {
 
   /* Used to switch ON/OFF auto savepoint */
   bool auto_savepoint;
+
+  bool opt_index_format_gpp_enabled;
 };
 
 /**

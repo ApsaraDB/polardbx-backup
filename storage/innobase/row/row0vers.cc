@@ -551,8 +551,8 @@ trx_t *row_vers_impl_x_locked(const rec_t *rec, const dict_index_t *index,
   collected by the purge. This is not a problem, because we are
   only interested in active transactions. */
 
-  clust_rec =
-      row_get_clust_rec(BTR_SEARCH_LEAF, rec, index, &clust_index, &mtr);
+  clust_rec = row_get_clust_rec(BTR_SEARCH_LEAF, rec, index, &clust_index,
+                                offsets, &mtr);
 
   if (!clust_rec) {
     /* In a rare case it is possible that no clust rec is found
@@ -610,12 +610,13 @@ static bool row_vers_non_vc_index_entry_match(dict_index_t *index,
                                               const dtuple_t *ientry1,
                                               const dtuple_t *ientry2,
                                               ulint *n_non_v_col) {
-  ulint n_fields = dtuple_get_n_fields(ientry1);
+  ulint n_fields = lizard::row_ver_dtuple_get_ordered_n_fields(ientry1, index);
   ulint ret = true;
 
   *n_non_v_col = 0;
 
-  ut_ad(n_fields == dtuple_get_n_fields(ientry2));
+  ut_ad(n_fields ==
+        lizard::row_ver_dtuple_get_ordered_n_fields(ientry2, index));
 
   for (ulint i = 0; i < n_fields; i++) {
     const dict_field_t *ind_field = index->get_field(i);
@@ -1065,7 +1066,7 @@ bool row_vers_old_has_index_entry(
         row_vers_build_clust_v_col(row, clust_index, index, heap);
 
         entry = row_build_index_entry(row, ext, index, heap);
-        if (entry && dtuple_coll_eq(entry, ientry)) {
+        if (entry && lizard::row_ver_sec_dtuple_coll_eq(entry, ientry, index)) {
           mem_heap_free(heap);
 
           if (v_heap) {
@@ -1130,7 +1131,7 @@ bool row_vers_old_has_index_entry(
       the clustered index record has already been updated to
       a different binary value in a char field, but the
       collation identifies the old and new value anyway! */
-      if (entry && dtuple_coll_eq(entry, ientry)) {
+      if (entry && lizard::row_ver_sec_dtuple_coll_eq(entry, ientry, index)) {
         mem_heap_free(heap);
 
         if (v_heap) {
@@ -1223,7 +1224,7 @@ bool row_vers_old_has_index_entry(
       a char field, but the collation identifies the old
       and new value anyway! */
 
-      if (entry && dtuple_coll_eq(entry, ientry)) {
+      if (entry && lizard::row_ver_sec_dtuple_coll_eq(entry, ientry, index)) {
         mem_heap_free(heap);
         if (v_heap) {
           mem_heap_free(v_heap);

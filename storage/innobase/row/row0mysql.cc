@@ -1494,7 +1494,8 @@ static dberr_t row_insert_for_mysql_using_cursor(const byte *mysql_rec,
     }
 
     if (index->is_clustered()) {
-      err = row_ins_clust_index_entry(node->index, node->entry, thr, false);
+      err = row_ins_clust_index_entry(node->index, node->entry, &node->gpp_no,
+                                      thr, false);
     } else {
       err = row_ins_sec_index_entry(node->index, node->entry, thr, false);
     }
@@ -2165,7 +2166,7 @@ static dberr_t row_update_for_mysql_using_cursor(const upd_node_t *node,
 
     if (index->is_clustered()) {
       if (!dict_index_is_auto_gen_clust(index)) {
-        err = row_ins_clust_index_entry(index, entry, thr, true);
+        err = row_ins_clust_index_entry(index, entry, nullptr, thr, true);
       }
     } else {
       err = row_ins_sec_index_entry(index, entry, thr, true);
@@ -2186,7 +2187,7 @@ static dberr_t row_update_for_mysql_using_cursor(const upd_node_t *node,
     entry = row_build_index_entry(node->upd_row, node->upd_ext, index, heap);
 
     if (index->is_clustered()) {
-      err = row_ins_clust_index_entry(index, entry, thr, false);
+      err = row_ins_clust_index_entry(index, entry, nullptr, thr, false);
       /* Commit the open mtr as we are processing UPDATE. */
       if (index->last_ins_cur) {
         index->last_ins_cur->release();
@@ -2936,7 +2937,8 @@ dberr_t row_create_index_for_mysql(
                                 index columns, which are
                                 then checked for not being too
                                 large. */
-    dict_table_t *handler)      /*!< in/out: table handler. */
+    dict_table_t *handler,      /*!< in/out: table handler. */
+    lizard::Ha_ddl_policy *ddl_policy)
 {
   dberr_t err;
   ulint i;
@@ -2989,6 +2991,10 @@ dberr_t row_create_index_for_mysql(
   }
 
   trx_set_dict_operation(trx, TRX_DICT_OP_TABLE);
+
+  lizard::dd_fill_dict_index_format(
+      lizard::ha_ddl_create_index_policy(ddl_policy, table, index), table,
+      index);
 
   /* For temp-table we avoid insertion into SYSTEM TABLES to
   maintain performance and so we have separate path that directly

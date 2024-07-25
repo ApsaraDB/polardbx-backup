@@ -1,0 +1,119 @@
+
+--connect (conn1,127.0.0.1,root,,test,$MYPORT_1)
+--connection conn1
+
+--connect (conn2,127.0.0.1,root,,test,$MYPORT_2)
+--connection conn2
+
+--connection conn1
+--let $orig_opt_index_format_gpp_enabled = `SELECT @@global.opt_index_format_gpp_enabled`
+--let $orig_innodb_lizard_stat_enabled= `SELECT @@global.innodb_lizard_stat_enabled`
+
+set global innodb_lizard_stat_enabled=on;
+create database gpp_options;
+SET session opt_index_format_gpp_enabled = TRUE;
+show variables like "opt_index_format_gpp_enabled";
+
+--connection conn2
+set global innodb_lizard_stat_enabled=on;
+SET session opt_index_format_gpp_enabled = FALSE;
+show variables like "opt_index_format_gpp_enabled";
+
+--connection conn1
+CREATE TABLE gpp_options.t1 (
+  a int NOT NULL,
+  b int NOT NULL,
+  c int NOT NULL,
+  pad varchar(8192),
+  primary key (a),
+  KEY (b)
+) ENGINE=innodb AUTO_INCREMENT=0;
+insert into gpp_options.t1 values (1,1,1,'11111');
+insert into gpp_options.t1 values (2,2,2,'22222');
+insert into gpp_options.t1 values (3,3,3,'33333');
+insert into gpp_options.t1 values (4,4,4,'44444');
+insert into gpp_options.t1 values (5,5,5,'55555');
+insert into gpp_options.t1 values (6,6,6,'66666');
+insert into gpp_options.t1 values (7,7,7,'77777'); 
+SET opt_index_format_gpp_enabled=false;
+CREATE INDEX b_c ON gpp_options.t1(b,c);
+--let $SCHEMA_NAME=gpp_options
+--let $TABLE_NAME=t1
+--let $INDEX_COL=b
+--let $INDEX_COL_MIN_VAL=0
+--let $INDEX_COL_MAX_VAL=100
+--let $NON_INDEX_COL=pad
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+
+--connection conn2
+--source include/wait_apply_catchup.inc
+--let $SCHEMA_NAME=gpp_options
+--let $TABLE_NAME=t1
+--let $INDEX_COL=b
+--let $INDEX_COL_MIN_VAL=0
+--let $INDEX_COL_MAX_VAL=100
+--let $NON_INDEX_COL=pad
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+
+# ----------------------------------------------------------------------------------------------------- #
+--echo # Add index with a new column e, index b and b_c stay stable.
+--connection conn1
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD COLUMN e INT DEFAULT 1;
+ALTER TABLE gpp_options.t1 ADD INDEX e_idx (e);
+
+--connection conn2
+--source include/wait_apply_catchup.inc
+--let $INDEX_NAME=e_idx
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=e
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--let $INDEX_COL=b
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+
+--connection conn1
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX e_idx;
+ALTER TABLE gpp_options.t1 DROP COLUMN e;
+
+--connection conn2
+--source include/wait_apply_catchup.inc
+--let $INDEX_NAME=b
+--let $CONTAIN_GPP=1
+--source suite/lizard/include/gpp_has_options.inc
+--let $INDEX_NAME=b_c
+--let $CONTAIN_GPP=0
+--source suite/lizard/include/gpp_has_options.inc
+# ----------------------------------------------------------------------------------------------------- #
+
+
+--connection conn1
+--echo # ------------------------- Clean up --------------------------------------------------
+--eval SET opt_index_format_gpp_enabled= $orig_opt_index_format_gpp_enabled
+--eval SET GLOBAL innodb_lizard_stat_enabled= $orig_innodb_lizard_stat_enabled
+drop database gpp_options;
+
+--connection conn2
+--eval SET opt_index_format_gpp_enabled= $orig_opt_index_format_gpp_enabled
+--eval SET GLOBAL innodb_lizard_stat_enabled= $orig_innodb_lizard_stat_enabled
+
+--disconnect conn1
+--disconnect conn2
+
+--connection default

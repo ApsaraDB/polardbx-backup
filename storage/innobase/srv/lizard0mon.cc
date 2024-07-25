@@ -229,6 +229,24 @@ static void export_lizard_status(void) {
 
   lizard_vars.commit_snapshot_gcn_search_hit =
       lizard_stats.commit_snapshot_gcn_search_hit;
+
+  lizard_vars.index_scan_guess_clust_hit =
+      lizard_stats.index_scan_guess_clust_hit;
+
+  lizard_vars.index_scan_guess_clust_miss =
+      lizard_stats.index_scan_guess_clust_miss;
+
+  lizard_vars.index_purge_guess_clust_hit =
+      lizard_stats.index_purge_guess_clust_hit;
+
+  lizard_vars.index_purge_guess_clust_miss =
+      lizard_stats.index_purge_guess_clust_miss;
+
+  lizard_vars.index_lock_guess_clust_hit =
+      lizard_stats.index_lock_guess_clust_hit;
+
+  lizard_vars.index_lock_guess_clust_miss =
+      lizard_stats.index_lock_guess_clust_miss;
 }
 
 static SHOW_VAR lizard_status_variables[] = {
@@ -517,6 +535,30 @@ static SHOW_VAR lizard_status_variables[] = {
 
     {"commit_snapshot_gcn_search_hit",
      (char *)&lizard_vars.commit_snapshot_gcn_search_hit, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+
+    {"index_scan_guess_clust_hit",
+     (char *)&lizard_vars.index_scan_guess_clust_hit, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+
+    {"index_scan_guess_clust_miss",
+     (char *)&lizard_vars.index_scan_guess_clust_miss, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+
+    {"index_purge_guess_clust_hit",
+     (char *)&lizard_vars.index_purge_guess_clust_hit, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+
+    {"index_purge_guess_clust_miss",
+     (char *)&lizard_vars.index_purge_guess_clust_miss, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+
+    {"index_lock_guess_clust_hit",
+     (char *)&lizard_vars.index_lock_guess_clust_hit, SHOW_LONG,
+     SHOW_SCOPE_GLOBAL},
+
+    {"index_lock_guess_clust_miss",
+     (char *)&lizard_vars.index_lock_guess_clust_miss, SHOW_LONG,
      SHOW_SCOPE_GLOBAL},
 
     {NullS, NullS, SHOW_LONG, SHOW_SCOPE_GLOBAL}};

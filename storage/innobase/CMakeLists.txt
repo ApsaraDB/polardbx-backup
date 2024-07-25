@@ -79,6 +79,7 @@ SET(INNOBASE_SOURCES
   btr/btr0cur.cc
   btr/btr0pcur.cc
   btr/btr0sea.cc
+  btr/lizard0btr0cur.cc
   buf/buf0block_hint.cc
   buf/buf0buddy.cc
   buf/buf0buf.cc
@@ -277,7 +278,12 @@ SET(INNOBASE_SOURCES
   trx/lizard0gp.cc
   trx/lizard0xa.cc
   trx/lizard0tcn.cc
-  ut/lizard0iv.cc)
+  ut/lizard0iv.cc
+  dict/lizard0dict0mem.cc
+  data/lizard0data0data.cc
+  mtr/lizard0mtr0log.cc
+  dict/lizard0dd0policy.cc
+  )
 
 # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=98753
 IF(MY_COMPILER_IS_GNU AND NOT CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11)
