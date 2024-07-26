@@ -198,18 +198,18 @@ void split(const char *str, const char *separator, C *container) {
 class Disable_unnamed_object {
  public:
   Disable_unnamed_object() {
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     m_effected = false;
 #endif
   }
 
   virtual ~Disable_unnamed_object() {
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     assert(m_effected == true);
 #endif
   }
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
  private:
   bool m_effected;
 

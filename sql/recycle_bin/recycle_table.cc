@@ -361,7 +361,7 @@ static bool check_state(THD *thd, Table_ref *table) {
   DBUG_RETURN(false);
 }
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
 
 static ulonglong string_to_number(const char *str) {
   ulonglong num = 0;
@@ -433,14 +433,14 @@ static bool prepare_recycle_table(THD *thd, Table_ref *table_list,
     DBUG_RETURN(true);
   }
 /* Generate unique table name [ Engine_name + SE_private_id ] */
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   dd::Object_id unique_id = string_to_number(table_list->table_name);
 #else
   dd::Object_id unique_id;
   if (table_def->partitions().size() > 0) {
     const dd::Partition *partition_def = table_def->partitions().front();
-    if (partition_def->sub_partitions().size() > 0)
-      unique_id = partition_def->sub_partitions().front()->se_private_id();
+    if (partition_def->subpartitions().size() > 0)
+      unique_id = partition_def->subpartitions().front()->se_private_id();
     else
       unique_id = partition_def->se_private_id();
   } else {

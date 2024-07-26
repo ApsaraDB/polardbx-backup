@@ -691,7 +691,7 @@ int Sequence_share::reload_cache(TABLE *table, bool *changed, SR_ctx *sr_ctx) {
   }
   *changed = compare_records(table);
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   fprintf(stderr,
           "Sequence will write values: "
           "currval %llu "

@@ -50,7 +50,7 @@ Consensus_log_event::Consensus_log_event(const char *buffer, uint event_len,
 {
   DBUG_ENTER("Consensus_log_event::Consensus_log_event(const char *,"
          " uint, const Format_description_log_event *");
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   uint8_t const common_header_len = description_event->common_header_len;
   uint8 const post_header_len =
          description_event->post_header_len[binary_log::CONSENSUS_LOG_EVENT - 1];
@@ -107,7 +107,7 @@ uint32 Consensus_log_event::write_data_header_to_memory(uchar *buffer)
   ptr_buffer += ENCODED_LENGTH_LENGTH;
   memcpy(ptr_buffer, &reserve, sizeof(reserve));
   ptr_buffer += ENCODED_RESERVE_LENGTH;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   DBUG_PRINT("info", ("flag=%u, term=%llu index=%llu length=%llu reserve=%llu",
          flag, term, index, length, reserve));
 #endif
@@ -183,7 +183,7 @@ Previous_consensus_index_log_event::Previous_consensus_index_log_event(const cha
 {
   DBUG_ENTER("Consensus_log_event::Consensus_log_event(const char *,"
          " uint, const Format_description_log_event *");
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   uint8_t const common_header_len = description_event->common_header_len;
   uint8 const post_header_len =
          description_event->post_header_len[binary_log::PREVIOUS_CONSENSUS_INDEX_LOG_EVENT - 1];
@@ -212,7 +212,7 @@ uint32 Previous_consensus_index_log_event::write_data_header_to_memory(uchar *bu
   uchar *ptr_buffer = buffer;
   memcpy(ptr_buffer, &index, sizeof(index));
   ptr_buffer += ENCODED_INDEX_LENGTH;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   DBUG_PRINT("info", ("index=%lld",index));
 #endif
   assert(ptr_buffer == (buffer + POST_HEADER_LENGTH));
@@ -287,7 +287,7 @@ Consensus_cluster_info_log_event::Consensus_cluster_info_log_event(const char *b
 {
   DBUG_ENTER("Consensus_log_event::Consensus_log_event(const char *,"
     " uint, const Format_description_log_event *");
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   uint8_t const common_header_len = description_event->common_header_len;
   uint8 const post_header_len =
     description_event->post_header_len[binary_log::CONSENSUS_CLUSTER_INFO_EVENT - 1];
@@ -316,7 +316,7 @@ uint32 Consensus_cluster_info_log_event::write_data_header_to_memory(uchar *buff
   uchar *ptr_buffer = buffer;
   memcpy(ptr_buffer, &info_length, sizeof(info_length));
   ptr_buffer += ENCODED_INFO_LENGTH_LENGTH;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   DBUG_PRINT("info", ("info_length=%u",
     info_length));
 #endif
@@ -392,7 +392,7 @@ Consensus_empty_log_event::Consensus_empty_log_event(const char *buffer, uint ev
 {
   DBUG_ENTER("Consensus_empty_log_event::Consensus_empty_log_event(const char *,"
     " uint, const Format_description_log_event *");
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   uint8_t const common_header_len = description_event->common_header_len;
   uint8 const post_header_len =
     description_event->post_header_len[binary_log::CONSENSUS_EMPTY_EVENT - 1];

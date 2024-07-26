@@ -117,7 +117,7 @@ class PPS_lock_stat {
   }
   void aggregate_server_lock(const ulonglong value) {
     m_server_lock_time += value;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     if (opt_performance_point_dbug_enabled)
       fprintf(stderr, "%s\t: %lld us;\n", "server_lock", value);
 #endif
@@ -125,7 +125,7 @@ class PPS_lock_stat {
 
   void assign_server_lock(const ulonglong value) {
     m_server_lock_time = value;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     if (opt_performance_point_dbug_enabled)
       fprintf(stderr, "%s\t: %lld us;\n", "server_lock", value);
 #endif
@@ -133,7 +133,7 @@ class PPS_lock_stat {
 
   void aggregate_transaction_lock(const ulonglong time) {
     m_transaction_lock_time += time;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     if (opt_performance_point_dbug_enabled)
       fprintf(stderr, "%s\t: %lld us;\n", "transaction_lock", time);
 #endif
@@ -229,7 +229,7 @@ class PPS_cpu_stat {
     m_cpu_time = 0;
 #endif
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     if (opt_performance_point_dbug_enabled)
       fprintf(stderr, "%s\t: %lld us;\n", "clock_lock", m_cpu_time);
 #endif
@@ -240,7 +240,7 @@ class PPS_cpu_stat {
     long long diff = my_micro_time() - query_start_time;
     if (diff > 0) m_elapsed_time = diff;
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     if (opt_performance_point_dbug_enabled)
       fprintf(stderr, "%s\t: %lld us;\n", "elapsed_time", diff);
 #endif
@@ -320,7 +320,7 @@ class PPS_io_stat {
     return nullptr;
   }
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   static const char *IO_type_str(const PPI_IO_TYPE io_type) {
     switch (io_type) {
       case PPI_IO_DATAFILE_READ:
@@ -363,7 +363,7 @@ class PPS_io_stat {
     if (delta > 0) stat->aggregate_value(count, (ulonglong)delta);
     m_start_time = 0;
     m_io_type = PPI_IO_NONE;
-#ifndef DBUG_OFF
+#ifndef NDEBUG
     if (opt_performance_point_dbug_enabled)
       fprintf(stderr, "%s\t: %lld us;\n", IO_type_str(m_io_type), delta);
 #endif

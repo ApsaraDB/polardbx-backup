@@ -135,7 +135,7 @@ static void standardized_aes_key(const uchar *k, size_t k_len, uchar *rkey) {
   }
 }
 
-#if !defined(DBUG_OFF)
+#if !defined(NDEBUG)
 /* For autotest */
 static char *saved_cmd = NULL;
 

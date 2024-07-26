@@ -37,7 +37,7 @@
 #include "sql/recycle_bin/recycle_proc.h"
 #include "sql/trans_proc/implicit_savepoint.h"
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
 #include "sql/package/proc_dummy.h"
 #endif
 
@@ -125,7 +125,7 @@ void package_context_init() {
 
   package_inited = true;
 
-#ifndef DBUG_OFF
+#ifndef NDEBUG
   register_package<Proc, Proc_dummy>(PROC_DUMMY_SCHEMA);
   register_package<Proc, Proc_dummy_2>(PROC_DUMMY_SCHEMA);
 #endif
