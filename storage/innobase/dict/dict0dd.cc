@@ -27,6 +27,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 /** @file dict/dict0dd.cc
 Data dictionary interface */
 
+#include "lizard0dd0policy.h"
 #ifndef UNIV_HOTBACKUP
 #include <auto_thd.h>
 #include <current_thd.h>
@@ -920,6 +921,14 @@ dict_table_t *dd_table_create_on_dd_obj(const dd::Table *dd_table,
     dd_fill_instant_columns_default(*dd_table, table);
   }
 
+  const lizard::Indexes_policy &indexes_policy =
+      [dd_part, dd_table]() -> lizard::Indexes_policy {
+    if (dd_part)
+      return lizard::dd_fill_indexes_policy(dd_part);
+    else
+      return lizard::dd_fill_indexes_policy(dd_table);
+  }();
+
   /* It appears that index list for InnoDB table always starts with
   primary key */
   ut_ad(dd_table->indexes().size() > 0);
@@ -941,7 +950,10 @@ dict_table_t *dd_table_create_on_dd_obj(const dd::Table *dd_table,
     }
   }
 
-  for (const auto dd_index : dd_table->indexes()) {
+  for (size_t i = 0; i < dd_table->indexes().size(); i++) {
+    const auto dd_index = dd_table->indexes()[i];
+    const auto index_policy = indexes_policy[i];
+
     ulint n_fields = 0;
 
     if (dd_index->is_hidden()) continue;
@@ -976,6 +988,9 @@ dict_table_t *dd_table_create_on_dd_obj(const dd::Table *dd_table,
 
     dict_index_t *index = dict_mem_index_create(
         table->name.m_name, dd_index->name().c_str(), 0, type, n_fields);
+
+    /** Lizard-4.0: Set stored gpp. */
+    lizard::dd_fill_dict_index_format(index_policy, table, index);
 
     index->n_uniq = n_uniq;
 
@@ -1080,6 +1095,17 @@ dict_table_t *dd_table_create_on_dd_obj(const dd::Table *dd_table,
       doc_id_index = dict_mem_index_create(
           table->name.m_name, FTS_DOC_ID_INDEX_NAME, 0, DICT_UNIQUE, 1);
       doc_id_index->add_field(FTS_DOC_ID_COL_NAME, 0, true);
+
+      const lizard::Index_policy *index_policy = nullptr;
+      for (ulint i = 0; i < dd_table->indexes().size(); i++) {
+        if (dd_table->indexes()[i]->name() == FTS_DOC_ID_INDEX_NAME) {
+          index_policy = &indexes_policy[i];
+          break;
+        }
+      }
+      ut_a(index_policy);
+      /** Lizard-4.0: Set stored gpp. */
+      lizard::dd_fill_dict_index_format(*index_policy, table, doc_id_index);
 
       dberr_t err = dict_index_add_to_cache(table, doc_id_index,
                                             doc_id_index->page, false);
