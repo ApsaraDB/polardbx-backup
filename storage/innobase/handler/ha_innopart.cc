@@ -81,6 +81,8 @@ Created Nov 22, 2013 Mattias Jonsson */
 #include "univ.i"
 #include "ut0ut.h"
 
+#include "sql/dd/lizard_policy_types.h"
+
 /* To be backwards compatible we also fold partition separator on windows. */
 
 Ha_innopart_share::Ha_innopart_share(TABLE_SHARE *table_share)
@@ -2428,6 +2430,8 @@ int ha_innopart::create(const char *name, TABLE *form,
     return HA_ERR_INTERNAL_ERROR;
   }
 
+  lizard::Ha_ddl_policy ddl_policy(thd);
+
   create_table_info_t info(thd, form, create_info, table_name, remote_path,
                            tablespace_name, srv_file_per_table, false, 0, 0,
                            true);
@@ -2579,12 +2583,13 @@ int ha_innopart::create(const char *name, TABLE *form,
 
     info.set_remote_path_flags();
 
-    if ((error = info.create_table(&dd_part->table(), nullptr)) != 0) {
+    if ((error = info.create_table(&dd_part->table(), nullptr, &ddl_policy)) !=
+        0) {
       break;
     }
 
     if ((error = info.create_table_update_global_dd<dd::Partition>(
-             const_cast<dd::Partition *>(dd_part))) != 0) {
+             const_cast<dd::Partition *>(dd_part), &ddl_policy)) != 0) {
       break;
     }
 

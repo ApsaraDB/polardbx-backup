@@ -114,9 +114,13 @@ eval SELECT * FROM $dest_db.t1 LIMIT 10;
 eval ALTER TABLE $dest_db.t1 DISCARD TABLESPACE;
 
 --echo # Import without .cfg file is posible
+--echo # Lizard 4.0 Import without .cfg file is impossible now
 --echo # copying .cfp and .ibd file
 --copy_file $MYSQLD_DATADIR/t1.cfp_back $MYSQLD_DATADIR/$dest_db/t1.cfp
 --copy_file $MYSQLD_DATADIR/t1.ibd_back $MYSQLD_DATADIR/$dest_db/t1.ibd
+--error ER_TABLE_CFG_MISSING
+eval ALTER TABLE $dest_db.t1 IMPORT TABLESPACE;
+--copy_file $MYSQLD_DATADIR/t1.cfg_back $MYSQLD_DATADIR/$dest_db/t1.cfg
 eval ALTER TABLE $dest_db.t1 IMPORT TABLESPACE;
 eval SELECT * FROM $dest_db.t1 LIMIT 10;
 ALTER INSTANCE ROTATE INNODB MASTER KEY;

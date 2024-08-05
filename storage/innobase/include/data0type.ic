@@ -413,6 +413,11 @@ static inline ulint dtype_get_fixed_size_low(
     bool comp)         /*!< in: nonzero=ROW_FORMAT=COMPACT  */
 {
   switch (mtype) {
+    case DATA_SYS_GPP:
+#ifdef UNIV_DEBUG
+      ut_ad(prtype == DATA_NOT_NULL);
+#endif /* UNIV_DEBUG */
+      return (len);
     case DATA_SYS:
 #ifdef UNIV_DEBUG
       switch (prtype & DATA_MYSQL_TYPE_MASK) {
@@ -496,6 +501,9 @@ static inline ulint dtype_get_min_size_low(
                        multi-byte character */
 {
   switch (mtype) {
+    case DATA_SYS_GPP:
+      ut_ad(len == DATA_GPP_NO_LEN);
+      return (len);
     case DATA_SYS:
 #ifdef UNIV_DEBUG
       switch (prtype & DATA_MYSQL_TYPE_MASK) {

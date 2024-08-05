@@ -251,7 +251,6 @@ support-files/mysqlrouter-log-rotate
 CMakeDoxyfile.in
 CMakeDoxygenDefaults.cmake
 Doxyfile
-data/
 extra/curl/curl-7.86.0/CMake/cmake_uninstall.cmake
 extra/curl/curl-7.86.0/curl-config
 extra/curl/curl-7.86.0/generated/
@@ -285,3 +284,7 @@ man/man1/
 mysql-test/run_query.log
 mysql-test/run_query.error
 mysql-test/var*
+extra/libkmip/kmippp/demo_*
+extra/libkmip/libkmip/src/demo_*
+extra/libkmip/libkmip/src/libkmip.a
+extra/libkmip/kmippp/libkmippp.a

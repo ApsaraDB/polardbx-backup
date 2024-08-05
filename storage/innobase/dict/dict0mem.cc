@@ -244,7 +244,9 @@ static void dict_mem_table_col_rename_low(
         if ((!is_virtual) != (!field->col->is_virtual())) {
           continue;
         }
-
+        if (field->col->mtype == DATA_SYS_GPP) {
+          continue;
+        }
         ulint name_ofs = field->name - t_col_names;
         if (name_ofs <= prefix_len) {
           field->name = col_names + name_ofs;

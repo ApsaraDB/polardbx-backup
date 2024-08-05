@@ -94,9 +94,11 @@ FLUSH TABLE tsource FOR EXPORT;
 tsource.cfg
 tsource.ibd
 # List of files on destination
+tsource.cfg
 tsource.ibd
 UNLOCK TABLES;
 USE db_destination;
+# Lizard 4.0 Import without .cfg file is impossible now
 ALTER TABLE tsource IMPORT TABLESPACE;
 SELECT COUNT(*) FROM tsource;
 COUNT(*)
@@ -374,11 +376,15 @@ tsource#p#p1.ibd
 tsource#p#p2.cfg
 tsource#p#p2.ibd
 # List of files on destination
+tsource#p#p0.cfg
 tsource#p#p0.ibd
+tsource#p#p1.cfg
 tsource#p#p1.ibd
+tsource#p#p2.cfg
 tsource#p#p2.ibd
 UNLOCK TABLES;
 USE db_destination;
+# Lizard 4.0 Import without .cfg file is impossible now
 ALTER TABLE tsource IMPORT TABLESPACE;
 SELECT COUNT(*) FROM tsource;
 COUNT(*)
@@ -433,11 +439,13 @@ tsource#p#p2.ibd
 # List of files on destination
 tsource#p#p0.cfg
 tsource#p#p0.ibd
+tsource#p#p1.cfg
 tsource#p#p1.ibd
 tsource#p#p2.cfg
 tsource#p#p2.ibd
 UNLOCK TABLES;
 USE db_destination;
+# Lizard 4.0 Import without .cfg file is impossible now
 ALTER TABLE tsource IMPORT TABLESPACE;
 SELECT COUNT(*) FROM tsource;
 COUNT(*)

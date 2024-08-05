@@ -780,6 +780,11 @@ struct dtuple_t {
     }
     return false;
   }
+
+  /** Lizard-4.0 virtual GPP_NO field */
+  dfield_t *v_gfield;
+  gpp_no_t read_v_gpp_no() const;
+  gpp_no_t read_s_gpp_no() const;
 };
 
 /** A slot for a field in a big rec vector */

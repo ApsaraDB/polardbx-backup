@@ -285,18 +285,23 @@ func_exit:
  @return true if the secondary index record can be purged */
 bool row_purge_poss_sec(purge_node_t *node,    /*!< in/out: row purge node */
                         dict_index_t *index,   /*!< in: secondary index */
-                        const dtuple_t *entry) /*!< in: secondary index entry */
+                        const dtuple_t *entry, /*!< in: secondary index entry */
+                        btr_cur_t *cur) /*!< in: cursor on secondary index */
 {
   bool can_delete;
+  bool found_clust;
   mtr_t mtr;
 
   ut_ad(!index->is_clustered());
   mtr_start(&mtr);
 
-  can_delete =
-      !row_purge_reposition_pcur(BTR_SEARCH_LEAF, node, &mtr) ||
-      !row_vers_old_has_index_entry(true, node->pcur.get_rec(), &mtr, index,
-                                    entry, node->roll_ptr, node->trx_id);
+  found_clust = lizard::row_purge_optimistic_reposition_pcur(BTR_SEARCH_LEAF,
+                                                             node, cur, &mtr) ||
+                row_purge_reposition_pcur(BTR_SEARCH_LEAF, node, &mtr);
+
+  can_delete = !found_clust || !row_vers_old_has_index_entry(
+                                   true, node->pcur.get_rec(), &mtr, index,
+                                   entry, node->roll_ptr, node->trx_id);
 
   /* Persistent cursor is closed if reposition fails. */
   if (node->found_clust) {
@@ -382,7 +387,7 @@ index tree.  Does not try to buffer the delete.
   which cannot be purged yet, requires its existence. If some requires,
   we should do nothing. */
 
-  if (row_purge_poss_sec(node, index, entry)) {
+  if (row_purge_poss_sec(node, index, entry, btr_cur)) {
     /* Remove the index record, which should have been
     marked for deletion. */
     if (!rec_get_deleted_flag(btr_cur_get_rec(btr_cur),
@@ -510,7 +515,7 @@ if possible.
     case ROW_FOUND:
       /* Before attempting to purge a record, check
       if it is safe to do so. */
-      if (row_purge_poss_sec(node, index, entry)) {
+      if (row_purge_poss_sec(node, index, entry, pcur.get_btr_cur())) {
         btr_cur_t *btr_cur = pcur.get_btr_cur();
 
         /* Only delete-marked records should be purged. */
@@ -1086,6 +1091,7 @@ try_again:
   if (!(node->cmpl_info & UPD_NODE_NO_ORD_CHANGE)) {
     ptr = trx_undo_rec_get_partial_row(
         ptr, clust_index, &node->row, type == TRX_UNDO_UPD_DEL_REC, node->heap);
+    lizard::row_purge_alloc_gpp_field(node);
   }
 
   return (true);

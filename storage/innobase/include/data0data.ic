@@ -33,6 +33,9 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "btr0types.h"
 #include "mem0mem.h"
 
+#include "lizard0data0data.h"
+#include "lizard0data0types.h"
+
 #ifdef UNIV_DEBUG
 /** Dummy variable to catch access to uninitialized fields.  In the
 debug version, dtuple_create() will make all fields of dtuple_t point
@@ -393,9 +396,10 @@ static inline dtuple_t *dtuple_create_from_mem(void *buf, ulint buf_size,
                                                ulint n_v_fields) {
   dtuple_t *tuple;
   ulint n_t_fields = n_fields + n_v_fields;
+  ulint n_v_gfields = DATA_GPP_NO_FIELDS;
 
   ut_ad(buf != nullptr);
-  ut_a(buf_size >= DTUPLE_EST_ALLOC(n_t_fields));
+  ut_a(buf_size >= DTUPLE_EST_ALLOC(n_t_fields + n_v_gfields));
 
   tuple = (dtuple_t *)buf;
   tuple->info_bits = 0;
@@ -408,6 +412,7 @@ static inline dtuple_t *dtuple_create_from_mem(void *buf, ulint buf_size,
   } else {
     tuple->v_fields = nullptr;
   }
+  tuple->v_gfield = &tuple->fields[n_t_fields];
 
 #ifdef UNIV_DEBUG
   tuple->magic_n = dtuple_t::MAGIC_N;
@@ -424,6 +429,15 @@ static inline dtuple_t *dtuple_create_from_mem(void *buf, ulint buf_size,
         field = dtuple_get_nth_field(tuple, i);
       }
 
+      dfield_set_len(field, UNIV_SQL_NULL);
+      field->data = &data_error;
+      dfield_get_type(field)->mtype = DATA_ERROR;
+      dfield_get_type(field)->prtype = DATA_ERROR;
+    }
+
+    {
+      // Lizard-4.0 Initialize GPP dfield value.
+      dfield_t *field = tuple->v_gfield;
       dfield_set_len(field, UNIV_SQL_NULL);
       field->data = &data_error;
       dfield_get_type(field)->mtype = DATA_ERROR;
@@ -486,8 +500,9 @@ static inline dtuple_t *dtuple_create_with_vcol(mem_heap_t *heap,
   dtuple_t *tuple;
 
   ut_ad(heap);
+  ulint n_v_gfields = DATA_GPP_NO_FIELDS;
 
-  buf_size = DTUPLE_EST_ALLOC(n_fields + n_v_fields);
+  buf_size = DTUPLE_EST_ALLOC(n_fields + n_v_fields + n_v_gfields);
   buf = mem_heap_zalloc(heap, buf_size);
 
   tuple = dtuple_create_from_mem(buf, buf_size, n_fields, n_v_fields);
@@ -535,6 +550,8 @@ static inline dtuple_t *dtuple_copy(
     dfield_copy(dtuple_get_nth_v_field(new_tuple, i),
                 dtuple_get_nth_v_field(tuple, i));
   }
+
+  lizard::dtuple_copy_v_gfield(new_tuple, tuple);
 
   return (new_tuple);
 }

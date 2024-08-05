@@ -224,6 +224,10 @@ dict_table_t *dict_mem_table_create(const char *name, space_id_t space,
   table->v_cols = static_cast<dict_v_col_t *>(
       mem_heap_alloc(heap, n_v_cols * sizeof(*table->v_cols)));
 
+  /** Lizard-4.0 always GPP_NO column on innodb table. */
+  table->v_gcol =
+      static_cast<dict_col_t *>(mem_heap_alloc(heap, sizeof(dict_col_t)));
+
 #ifndef UNIV_HOTBACKUP
 #ifndef UNIV_LIBRARY
   dict_table_mutex_create_lazy(table);

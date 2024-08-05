@@ -1,0 +1,259 @@
+#
+# Test gpp options with all kinds of ddl.
+#
+set global innodb_lizard_stat_enabled=on;
+set opt_index_format_gpp_enabled=true;
+create database gpp_options;
+CREATE TABLE gpp_options.t1 (
+a int NOT NULL,
+b int NOT NULL,
+c int NOT NULL,
+pad varchar(8192),
+primary key (a),
+KEY (b)
+) ENGINE=innodb AUTO_INCREMENT=0;
+insert into gpp_options.t1 values (1,1,1,'11111');
+insert into gpp_options.t1 values (2,2,2,'22222');
+insert into gpp_options.t1 values (3,3,3,'33333');
+insert into gpp_options.t1 values (4,4,4,'44444');
+insert into gpp_options.t1 values (5,5,5,'55555');
+insert into gpp_options.t1 values (6,6,6,'66666');
+insert into gpp_options.t1 values (7,7,7,'77777');
+# index b's gpp option stays true.
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# create new index b_c within gpp_opt =false, b_c gpp option stays false, b's gpp option stays true.
+SET opt_index_format_gpp_enabled=false;
+CREATE INDEX b_c ON gpp_options.t1(b,c);
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# the following all kinds of ddl test case unit assume that at the beginning, index b has gpp and index b_c doesn't.
+# Export and Import test.
+CREATE DATABASE gpp_tmp;
+SET opt_index_format_gpp_enabled=true;
+CREATE TABLE gpp_tmp.t1 (
+a int NOT NULL,
+b int NOT NULL,
+c int NOT NULL,
+pad varchar(8192),
+primary key (a),
+KEY (b),
+KEY b_c (b,c)
+) ENGINE=innodb AUTO_INCREMENT=0;
+ALTER TABLE gpp_tmp.t1 DISCARD TABLESPACE;
+FLUSH TABLE gpp_options.t1 FOR EXPORT;
+UNLOCK TABLES;
+ALTER TABLE gpp_tmp.t1 IMPORT TABLESPACE;
+ERROR HY000: Schema mismatch (Index field count 4 doesn't match tablespace metadata file value 3)
+ALTER TABLE gpp_tmp.t1 DROP INDEX b, DROP INDEX b_c;
+Warnings:
+Warning	1814	InnoDB: Tablespace has been discarded for table 't1'
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_tmp.t1 ADD INDEX b_c (b,c), ADD INDEX b (b);
+Warnings:
+Warning	1814	InnoDB: Tablespace has been discarded for table 't1'
+ALTER TABLE gpp_tmp.t1 IMPORT TABLESPACE;
+ERROR HY000: Schema mismatch (Index field count 2 doesn't match tablespace metadata file value 3)
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_tmp.t1 DROP INDEX b;
+Warnings:
+Warning	1814	InnoDB: Tablespace has been discarded for table 't1'
+ALTER TABLE gpp_tmp.t1 ADD INDEX b (b);
+Warnings:
+Warning	1814	InnoDB: Tablespace has been discarded for table 't1'
+ALTER TABLE gpp_tmp.t1 IMPORT TABLESPACE;
+ERROR HY000: Config file is missing for importing table t1
+ALTER TABLE gpp_tmp.t1 IMPORT TABLESPACE;
+DROP DATABASE gpp_tmp;
+# Add index with a new column e, index b and b_c stay stable.
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD COLUMN e INT DEFAULT 1;
+CREATE INDEX e_idx ON gpp_options.t1(e);
+include/assert.inc [The options for gpp_options.t1.e_idx should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.e_idx should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.e_idx should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.e_idx should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX e_idx;
+ALTER TABLE gpp_options.t1 DROP COLUMN e;
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+# alter table drop column c, index b_c rebuild, index b stays stable.
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP COLUMN c;
+Warnings:
+Warning	1831	Duplicate index 'b_c' defined on the table 'gpp_options.t1'. This is deprecated and will be disallowed in a future release.
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 ADD COLUMN c int NOT NULL DEFAULT 1;
+UPDATE gpp_options.t1 SET c=b;
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX b_c, ADD INDEX b_c (b,c);
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# Add unique index b_unique, index b and b_c stay stable.
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD UNIQUE INDEX b_unique (b);
+include/assert.inc [The options for gpp_options.t1.b_unique should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_unique should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.b_unique should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_unique should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX b_unique;
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# Add/drop fulltext index, the whole table was rebuilt. fts always non-gpp, index b and b_c depend on opt_gpp.
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD COLUMN tmp_str varchar(10) default 'default';
+ALTER TABLE gpp_options.t1 ADD FULLTEXT INDEX tmp_fts (tmp_str);
+Warnings:
+Warning	124	InnoDB rebuilding table to add column FTS_DOC_ID
+include/assert.inc [The options for gpp_options.t1.tmp_fts should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.tmp_fts should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.FTS_DOC_ID_INDEX should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.tmp_fts should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.tmp_fts should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.FTS_DOC_ID_INDEX should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX tmp_fts;
+include/assert.inc [The options for gpp_options.t1.FTS_DOC_ID_INDEX should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.FTS_DOC_ID_INDEX should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 RENAME COLUMN a to aa;
+ALTER TABLE gpp_options.t1 RENAME COLUMN aa to a;
+include/assert.inc [The options for gpp_options.t1.FTS_DOC_ID_INDEX should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.FTS_DOC_ID_INDEX should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=1 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP COLUMN tmp_str;
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=0 condition]
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 DROP INDEX b;
+ALTER TABLE gpp_options.t1 ADD INDEX b (b);
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# Add spatial index, spatial index always non-gpp, index b and b_c stay stable.
+ALTER TABLE gpp_options.t1 DROP INDEX b_c;
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD COLUMN tmp_geo GEOMETRY SRID 4326;
+UPDATE gpp_options.t1 SET tmp_geo = ST_GeomFromText('POINT(0 0)', 4326) WHERE tmp_geo IS NULL;
+ALTER TABLE gpp_options.t1 MODIFY tmp_geo GEOMETRY NOT NULL SRID 4326;
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 ADD INDEX b_c(b,c);
+SET opt_index_format_gpp_enabled=true;
+ALTER TABLE gpp_options.t1 ADD SPATIAL INDEX tmp_spatial (tmp_geo);
+include/assert.inc [The options for gpp_options.t1.tmp_spatial should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.tmp_spatial should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+SET opt_index_format_gpp_enabled=false;
+ALTER TABLE gpp_options.t1 DROP INDEX tmp_spatial;
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# restart:--loose_innodb_lizard_stat_enabled=1
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+ALTER TABLE gpp_options.t1 DROP COLUMN tmp_geo;
+include/assert.inc [The options for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b_c should match the expected IFT=0 condition]
+include/assert.inc [The options for gpp_options.t1.b should match the expected IFT=1 condition]
+include/assert.inc [The actual gpp hit/miss for gpp_options.t1.b should match the expected IFT=1 condition]
+# ------------------------- Clean up --------------------------------------------------
+SET opt_index_format_gpp_enabled= 1;
+SET GLOBAL innodb_lizard_stat_enabled= 0;
+drop database gpp_options;

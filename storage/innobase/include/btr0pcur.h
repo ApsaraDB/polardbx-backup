@@ -388,6 +388,11 @@ struct btr_pcur_t {
   allocated and resetting the other members to their initial values. */
   void reset();
 
+  /** Resets the m_btr_cur to a non-positioned state. Unlike reset() or close()
+   * functions, this method does not free old_rec_buf; it solely reinitializes a
+   * previously positioned m_btr_cur to become non-positioned.*/
+  void reset_btr_cur();
+
   /** Copies the stored position of a pcur to another pcur.
   @param[in,out]        dst                   Which will receive the position
   info.
@@ -931,6 +936,15 @@ inline void btr_pcur_t::reset() {
 
   m_latch_mode = BTR_NO_LATCHES;
   m_pos_state = BTR_PCUR_NOT_POSITIONED;
+}
+
+inline void btr_pcur_t::reset_btr_cur() {
+  m_latch_mode = BTR_NO_LATCHES;
+  m_pos_state = BTR_PCUR_NOT_POSITIONED;
+  m_btr_cur.index = nullptr;
+  m_btr_cur.flag = BTR_CUR_UNSET;
+  m_btr_cur.page_cur.rec = nullptr;
+  m_btr_cur.page_cur.block = nullptr;
 }
 
 #endif /* !UNIV_HOTBACKUP */

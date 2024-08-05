@@ -60,8 +60,31 @@ intrinsic tempooary table. Intrinsic table didn't support
 rollback, so didn't have UBA and no meaningful of SCN */
 #define DATA_ITT_N_LIZARD_COLS 0
 
-namespace lizard {
+/** Guess Primary Page NO column is virtual on table and primary key,
+ *  so the dd::column of GPP_NO didn't have physical position, in order to build
+ *  relationship between table and index, we simulate a column ordinal position
+ *  which is never used by user and system column.
+ *
+ *  In order to realize it, we extend 10-bits to 11-bits for dict_col_t::ind.
+ *  While the max number of (user + system) column in innodb remains to 1023,
+ *  the numbers between 1024 and 2047 belong to the virtual GPP_NO col and
+ *  other upcoming secondary lizard columns.
+ * */
+constexpr size_t DATA_GPP_NO = 1024;
+constexpr size_t DATA_GPP_NO_LEN = 4;
 
+/** Column name of GPP_NO */
+constexpr char DATA_GPP_NO_NAME[16] = "DATA_GPP_NO\0";
+
+inline const char *g_col_name() { return DATA_GPP_NO_NAME; }
+
+/** GPP NO field counter. */
+constexpr uint32_t DATA_GPP_NO_FIELDS = 1;
+
+/** GPP PAGE NO type. */
+typedef page_no_t gpp_no_t;
+
+namespace lizard {
 } /* namespace lizard */
 
 #endif

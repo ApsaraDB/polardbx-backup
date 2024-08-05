@@ -94,6 +94,10 @@ extern bool row_rollback_on_timeout;
 
 struct row_prebuilt_t;
 
+namespace lizard {
+class Index_policy;
+}
+
 /** Frees the blob heap in prebuilt when no longer needed. */
 void row_mysql_prebuilt_free_blob_heap(
     row_prebuilt_t *prebuilt); /*!< in: prebuilt struct of a
@@ -334,7 +338,8 @@ kept in non-LRU list while on failure the 'table' object will be freed.
                                 index columns, which are
                                 then checked for not being too
                                 large. */
-    dict_table_t *handler);     /* ! in/out: table handler. */
+    dict_table_t *handler,      /* ! in/out: table handler. */
+    lizard::Ha_ddl_policy *ddl_policy);
 
 /** Loads foreign key constraints for the table being created. This
  function should be called after the indexes for a table have been

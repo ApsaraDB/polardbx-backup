@@ -39,6 +39,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "log0chkp.h"
 
 #include "lizard0row.h"
+#include "lizard0btr0cur.h"
 
 namespace ddl {
 /** Innodb B-tree index fill factor for bulk load. */
@@ -1250,6 +1251,10 @@ dberr_t Btree_load::load_root_page(page_no_t last_page_no) noexcept {
   if (err == DB_SUCCESS) {
     page_loader.copy_all(last_page);
     page_loader.finish();
+
+    /** To indicate the index page is freed from the b-tree, we reset the index
+     * id to 0. */
+    lizard::btr_page_reset_index_id(last_block);
 
     /* Remove last page. */
     btr_page_free_low(m_index, last_block, m_root_level, &mtr);

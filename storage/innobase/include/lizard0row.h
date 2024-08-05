@@ -83,6 +83,47 @@ namespace lizard {
 */
 void ins_alloc_lizard_fields(ins_node_t *node);
 
+/**
+   Allocate row buffers for GPP_NO field.
+
+   @param[in]      node      Insert node
+*/
+void ins_alloc_gpp_field(ins_node_t *node);
+
+/**
+ * Write GPP_NO after primary key insert.
+ *
+ * @param[in/out]	insert node
+ * @param[in]		index
+ * @param[in]		index entry
+ * @param[in]		row
+ */
+void row_ins_clust_write_gpp_no(ins_node_t *node, const dict_index_t *index,
+                                dtuple_t *entry, const dtuple_t *row);
+
+/**
+ * Debug assert GPP_NO is valid when inserting second index.
+ * Attention: Use macro instead of using it directly.
+ *
+ * @param[in]	  insert node
+ * @param[in]		index
+ * @param[in]		index entry
+ * @param[in]		row
+ */
+void row_ins_sec_assert_gpp_no(ins_node_t *node, const dict_index_t *index,
+                               dtuple_t *entry, const dtuple_t *row);
+
+/**
+ * Write GPP_NO after primary key insert or just assert it for sec index.
+ *
+ * @param[in/out]	insert node
+ * @param[in]		index
+ * @param[in]		index entry
+ * @param[in]		row
+ */
+void row_ins_index_write_gpp_no(ins_node_t *node, const dict_index_t *index,
+                                dtuple_t *entry, const dtuple_t *row);
+
 /*=============================================================================*/
 /* lizard record update */
 /*=============================================================================*/
@@ -148,6 +189,97 @@ void row_upd_rec_write_scn_and_undo_ptr(byte *ptr, const scn_t scn,
 void row_upd_rec_lizard_fields(rec_t *rec, page_zip_des_t *page_zip,
                                const dict_index_t *index, const ulint *offsets,
                                const txn_desc_t *txn);
+
+/**
+   Allocate row buffers for GPP_NO field of update node's old row.
+
+   @param[in]      node      Insert node
+*/
+void upd_alloc_gpp_field_for_old_row(upd_node_t *node);
+
+/**
+   Allocate row buffers for GPP_NO field of update node's new row.
+
+   @param[in]      node      Insert node
+*/
+void upd_alloc_gpp_field_for_new_row(upd_node_t *node);
+
+/**
+ * Write GPP_NO after primary key update.
+ *
+ * @param[in/out]	upd node
+ * @param[in]		index
+ * @param[in]   index entry
+ * @param[in]		upd_row
+ */
+void row_upd_clust_write_gpp_no(upd_node_t *node, const dict_index_t *index,
+                                dtuple_t *entry, const dtuple_t *upd_row);
+
+/**
+ * Debug assert GPP_NO is valid when updating second index.
+ * Attention: Use macro instead of using it directly.
+ *
+ * @param[in]	  upd node
+ * @param[in]		index
+ * @param[in]   index entry
+ * @param[in]		upd_row
+ */
+void row_upd_sec_assert_gpp_no(upd_node_t *node, const dict_index_t *index,
+                               dtuple_t *entry, const dtuple_t *upd_row);
+
+/*=============================================================================*/
+/* lizard record row log */
+/*=============================================================================*/
+/**
+   Allocate row buffers for GPP_NO field when applying row log table
+
+   @param[in/out]   row
+   @param[in]       heap
+*/
+void row_log_table_alloc_gpp_field(dtuple_t *row, mem_heap_t *heap);
+
+/**
+ * Write GPP_NO after row log table apply.
+ *
+ * @param[in]		gpp_no
+ * @param[in]		index
+ * @param[in/out]	row
+ */
+void row_log_table_clust_write_gpp_no(const gpp_no_t &gpp_no,
+                                      const dict_index_t *index,
+                                      const dtuple_t *row);
+
+/**
+ * Assert GPP_NO is valid when applying row log table in secondary index.
+ *
+ * @param[in]		index
+ * @param[in]   index entry
+ * @param[in]		row
+ * @param[in]		gpp_no
+ */
+void row_log_table_sec_assert_gpp_no(const dict_index_t *index, dtuple_t *entry,
+                                     const dtuple_t *row,
+                                     const gpp_no_t &gpp_no);
+
+/*=============================================================================*/
+/* lizard record row undo */
+/*=============================================================================*/
+/**
+   Allocate row buffers for GPP_NO field for undo node.
+
+   @param[in]       node      Undo node
+*/
+void row_undo_alloc_gpp_field(undo_node_t *node);
+
+/*=============================================================================*/
+/* lizard record row purge */
+/*=============================================================================*/
+/**
+   Allocate row buffers for GPP_NO field for purge node.
+
+   @param[in]       node      Purge node
+*/
+void row_purge_alloc_gpp_field(purge_node_t *node);
 
 /*=============================================================================*/
 /* lizard fields read/write from table record */
@@ -232,6 +364,26 @@ void trx_undo_update_rec_by_lizard_fields(const dict_index_t *index,
                                           upd_t *update, ulint field_nth,
                                           txn_info_t txn_info,
                                           mem_heap_t *heap);
+
+/**
+ * Retrieves the GPP Number from a record
+ *
+ * @param[in] rec     Pointer to the record
+ * @param[in] index   Pointer to the dictionary index object, non-clustered
+ * @param[in] offsets Record field offsets array
+ * @return            Returns the GPP Number from the record
+ */
+gpp_no_t row_get_gpp_no(const rec_t *rec, const dict_index_t *index,
+                        const ulint *offsets);
+
+/**
+ * Assert GPP_NO is valid for multi-valued sec index.
+ *
+ * @param[in]		index
+ * @param[in]		multi-value entry
+ */
+void row_sec_multi_value_assert_gpp_no(const dict_index_t *index,
+                                       const dtuple_t *mv_entry);
 
 /*=============================================================================*/
 /* lizard record write/parse redo */
@@ -399,6 +551,75 @@ extern void commit_cleanout_collect(que_thr_t *thr, btr_cur_t *cursor,
 */
 extern void commit_cleanout_do(trx_t *trx, const txn_rec_t &txn_rec);
 
+/*=============================================================================*/
+/* lizard row guess on gpp */
+/*=============================================================================*/
+
+/**
+ * When attempting to select a secondary index record, this operation tries to
+ * position a persistent cursor on the corresponding clustered index record
+ * using the gpp_no value retrieved from the secondary index record.
+ *
+ * @param[in]     clust_idx       Clustered index
+ * @param[in]     sec_idx         Secondary index
+ * @param[in]     clust_ref       Reference tuple for the clustered index
+ * @param[in]     sec_rec         Secondary index record
+ * @param[in,out] clust_pcur      Persistent cursor for the clustered index
+ * @param[out]    sec_offsets     Offsets array for the secondary record
+ * @param[in]     mode            latching mode
+ * @param[in]     mtr             Mini-transaction handle
+ * @return        True if successful positioning, False otherwise
+ */
+bool row_sel_optimistic_guess_clust(dict_index_t *clust_idx,
+                                    dict_index_t *sec_idx, dtuple_t *clust_ref,
+                                    const rec_t *sec_rec,
+                                    btr_pcur_t *clust_pcur, ulint *sec_offsets,
+                                    ulint mode, mtr_t *mtr);
+
+/**
+ * When attempting to purge a secondary index record, this operation tries to
+ * position a persistent cursor on the corresponding clustered index record
+ * using the gpp_no value retrieved from the secondary index record.
+ *
+ * @param[in]     clust_idx       Clustered index
+ * @param[in]     sec_idx         Secondary index
+ * @param[in]     clust_ref       Reference tuple for the clustered index
+ * @param[in]     sec_rec         Secondary index record
+ * @param[in,out] clust_pcur      Persistent cursor for the clustered index
+ * @param[out]    sec_offsets     Offsets array for the secondary record
+ * @param[in]     mode            latching mode
+ * @param[in]     mtr             Mini-transaction handle
+ * @return        True if successful positioning, False otherwise
+ */
+bool row_purge_optimistic_guess_clust(dict_index_t *clust_idx,
+                                      dict_index_t *sec_idx,
+                                      dtuple_t *clust_ref, const rec_t *sec_rec,
+                                      btr_pcur_t *clust_pcur,
+                                      ulint *sec_offsets, ulint mode,
+                                      mtr_t *mtr);
+
+/**
+ * When attempting to lock a secondary index record, this operation tries to
+ * position a persistent cursor on the corresponding clustered index record
+ * using the gpp_no value retrieved from the secondary index record.
+ *
+ * @param[in]     clust_idx       Clustered index
+ * @param[in]     sec_idx         Secondary index
+ * @param[in]     clust_ref       Reference tuple for the clustered index
+ * @param[in]     sec_rec         Secondary index record
+ * @param[in,out] clust_pcur      Persistent cursor for the clustered index
+ * @param[out]    sec_offsets     Offsets array for the secondary record
+ * @param[in]     mode            latching mode
+ * @param[in]     mtr             Mini-transaction handle
+ * @return        True if successful positioning, False otherwise
+ */
+bool row_lock_optimistic_guess_clust(dict_index_t *clust_idx,
+                                     const dict_index_t *sec_idx,
+                                     dtuple_t *clust_ref, const rec_t *sec_rec,
+                                     btr_pcur_t *clust_pcur,
+                                     const ulint *sec_offsets, ulint mode,
+                                     mtr_t *mtr);
+
 #if defined UNIV_DEBUG || defined LIZARD_DEBUG
 /*=============================================================================*/
 /* lizard field debug */
@@ -473,12 +694,36 @@ bool row_lizard_has_cleanout(const rec_t *rec, const dict_index_t *index,
   do {                                                          \
     ut_a(lizard::row_lizard_has_cleanout(rec, index, offsets)); \
   } while (0)
+
+#define lizard_row_ins_sec_assert_gpp_no(node, index, entry, row) \
+  do {                                                            \
+    lizard::row_ins_sec_assert_gpp_no(node, index, entry, row);   \
+  } while (0)
+
+#define lizard_row_upd_sec_assert_gpp_no(node, index, entry, upd_row) \
+  do {                                                                \
+    lizard::row_upd_sec_assert_gpp_no(node, index, entry, upd_row);   \
+  } while (0)
+
+#define lizard_row_log_table_sec_assert_gpp_no(index, entry, row, gpp_no) \
+  do {                                                                    \
+    lizard::row_log_table_sec_assert_gpp_no(index, entry, row, gpp_no);   \
+  } while (0)
+
+#define lizard_row_sec_multi_value_assert_gpp_no(index, mv_entry) \
+  do {                                                            \
+    lizard::row_sec_multi_value_assert_gpp_no(index, mv_entry);   \
+  } while (0)
+
 #else
 #define assert_row_scn_initial(rec, index, offsets)
 #define assert_row_undo_ptr_is_active(rec, index, offsets)
 #define assert_row_lizard_valid(rec, index, offsets)
 #define assert_row_lizard_has_cleanout(rec, index, offsets)
-
+#define lizard_row_ins_sec_assert_gpp_no(node, index, entry, row)
+#define lizard_row_upd_sec_assert_gpp_no(node, index, entry, upd_row)
+#define lizard_row_log_table_sec_assert_gpp_no(index, entry, row, gpp_no)
+#define lizard_row_sec_multi_value_assert_gpp_no(index, mv_entry)
 #endif /* UNIV_DEBUG || LIZARD_DEBUG */
 
 #endif /* lizard0row_h */

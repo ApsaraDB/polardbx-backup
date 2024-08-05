@@ -35,6 +35,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include <sys/types.h>
 
 #include "fsp0fsp.h"
+#include "lizard0dict.h"
 #include "mach0data.h"
 #include "mtr0log.h"
 #include "trx0undo.h"
@@ -1984,6 +1985,8 @@ byte *trx_undo_rec_get_partial_row(
 
   *row = dtuple_create_with_vcol(heap, index->table->get_n_cols(),
                                  dict_table_get_n_v_cols(index->table));
+
+  lizard::dict_table_copy_g_types(*row, index->table);
 
   /* Mark all columns in the row uninitialized, so that
   we can distinguish missing fields from fields that are SQL NULL. */

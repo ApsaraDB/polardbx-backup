@@ -43,12 +43,13 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "sql_string.h"
 
 #include "sql/lizard/lizard_rpl_gcn.h"
+#include "sql/package/gpp_stat.h"
 
 class THD;
 
 namespace im {
 struct Undo_purge_show_result;
-}
+}  // namespace im
 
 class XA_spec_list {
  public:
@@ -127,6 +128,8 @@ typedef int (*convert_timestamp_to_scn_t)(THD *thd, my_utc_t utc,
 typedef void (*trunc_status_t)(std::vector<lizard::trunc_status_t> &array);
 typedef void (*purge_status_t)(lizard::purge_status_t &status);
 
+typedef void (*flush_gpp_stat_t)();
+
 template <typename T>
 using search_up_limit_tid_t = my_trx_id_t (*)(const T &lhs);
 
@@ -154,5 +157,6 @@ struct handlerton_ext {
       search_up_limit_tid_for_gcn;
   trunc_status_t trunc_status;
   purge_status_t purge_status;
+  flush_gpp_stat_t flush_gpp_stat;
 };
 #endif

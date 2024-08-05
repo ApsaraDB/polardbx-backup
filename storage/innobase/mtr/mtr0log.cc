@@ -31,6 +31,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
  *******************************************************/
 
 #include "mtr0log.h"
+#include "lizard0dict.h"
+#include "lizard0mtr0log.h"
 
 #ifndef UNIV_HOTBACKUP
 #include "buf0buf.h"
@@ -523,10 +525,13 @@ constexpr size_t inst_col_info_size = 6;
 @param[in]   is_comp       true if COMP
 @param[in]   is_versioned  if table has row versions
 @param[in]   is_instant    true if table has INSTANT cols
+@param[in]   is_sec_lfields  true if secondary index lizard fields extra flag
+                             need to be logged
 @param[out]  size_needed   total size needed on REDO LOG */
 static void log_index_get_size_needed(const dict_index_t *index, size_t size,
                                       uint16_t n, bool is_comp,
                                       bool is_versioned, bool is_instant,
+                                      bool is_sec_lfields,
                                       size_t &size_needed) {
   auto size_for_versioned_fields = [](const dict_index_t *ind) {
     size_t _size = 0;
@@ -550,6 +555,10 @@ static void log_index_get_size_needed(const dict_index_t *index, size_t size,
 
   /* 1 byte to log flag */
   size_needed += 1;
+
+  /* 1 byte to log secondary index lizard fields extra flag. */
+  if (is_sec_lfields)
+    size_needed += 1;
 
   if (!is_versioned && !is_comp) {
     return;
@@ -795,21 +804,35 @@ bool mlog_open_and_write_index(mtr_t *mtr, const byte *rec,
   const bool is_instant = index->has_instant_cols();
   const bool is_versioned = index->has_row_versions();
   const bool is_comp = dict_table_is_comp(index->table);
+  const bool is_leaf = page_is_leaf(page_align(rec));
 
   const byte *log_start;
   const byte *log_end;
 
   uint16_t n = is_versioned ? index->get_n_total_fields()
                             : dict_index_get_n_fields(index);
+
+  uint8_t n_sec_lfields;
+  uint8_t sl_extra_flag;
+  lizard::get_sec_lfields_extra_flag(index, sl_extra_flag, n_sec_lfields);
+  bool is_sec_lfields = false;
+  if (!is_leaf) {
+    /* Lizard-4.0: For non-leaf page, sec lizard fields should be ignored. */
+    n -= n_sec_lfields;
+  } else if (n_sec_lfields) {
+    is_sec_lfields = true;
+  }
+
   /* For spatial index, on non-leaf page, we just keep
   2 fields, MBR and page no. */
-  if (dict_index_is_spatial(index) && !page_is_leaf(page_align(rec))) {
+  if (dict_index_is_spatial(index) && !is_leaf) {
     n = DICT_INDEX_SPATIAL_NODEPTR_SIZE;
+    ut_ad(n_sec_lfields == 0);
   }
 
   size_t size_needed = 0;
   log_index_get_size_needed(index, size, n, is_comp, is_versioned, is_instant,
-                            size_needed);
+                            is_sec_lfields, size_needed);
   size_t total = size_needed;
   size_t alloc = total;
   if (alloc > mtr_buf_t::MAX_DATA_SIZE) {
@@ -835,7 +858,14 @@ bool mlog_open_and_write_index(mtr_t *mtr, const byte *rec,
   if (is_instant) SET_INSTANT(flag);
   if (is_versioned) SET_VERSIONED(flag);
   if (is_comp) SET_COMPACT(flag);
+  if (is_sec_lfields) {
+    ut_ad(!is_versioned && !is_instant);
+    SET_SEC_LFILEDS(flag);
+  }
+
   log_index_flag(flag, log_ptr);
+
+  lizard::log_index_sec_lfields_extra_flag(flag, sl_extra_flag, log_ptr);
 
   log_index_column_counts(index, n, rec, is_comp, is_versioned, is_instant,
                           log_ptr);
@@ -957,16 +987,19 @@ static byte *read_1_bytes(byte *ptr, const byte *end_ptr, uint8_t &val) {
 @param[in]   is_comp       true if COMP
 @param[in]   is_versioned  true if table has row versions
 @param[in]   is_instant    true if table has INSTANT cols
+@param[in]   n_sec_lfields number of secondary index lizard fields
 @param[out]  n             number of index fields
 @param[out]  n_uniq        n_uniq for index
 @param[out]  inst_cols     number of column before first instant add was done.
 @return pointer to buffer. */
 static byte *parse_index_column_counts(byte *ptr, const byte *end_ptr,
                                        bool is_comp, bool is_versioned,
-                                       bool is_instant, uint16_t &n,
-                                       uint16_t &n_uniq, uint16_t &inst_cols) {
+                                       bool is_instant, uint8_t n_sec_lfields,
+                                       uint16_t &n, uint16_t &n_uniq,
+                                       uint16_t &inst_cols) {
   if (!is_versioned && !is_comp) {
-    n = n_uniq = 1;
+    n_uniq = 1;
+    n = n_uniq + n_sec_lfields;
     inst_cols = 0;
     return ptr;
   }
@@ -1002,14 +1035,16 @@ static byte *parse_index_column_counts(byte *ptr, const byte *end_ptr,
 @param[in]       ptr      pointer to buffer
 @param[in]       end_ptr  pointer to end of buffer
 @param[in]       n        number of fields
+@param[in]       n_sec_lfields  number of secondary index lizard fields
 @param[in]       n_uniq   n_uniq
 @param[in]       is_versioned  true if table has row versions
 @param[in,out]   ind      dummy index
 @param[in,out]   table    dummy table
 @return pointer to log buffer */
 static byte *parse_index_fields(byte *ptr, const byte *end_ptr, uint16_t n,
-                                uint16_t n_uniq, bool is_versioned,
-                                dict_index_t *&ind, dict_table_t *&table) {
+                                uint8_t n_sec_lfields, uint16_t n_uniq,
+                                bool is_versioned, dict_index_t *&ind,
+                                dict_table_t *&table) {
   for (size_t i = 0; i < n; i++) {
     /* For redundant, col len metadata isn't needed for recovery as it is
     part of record itself. */
@@ -1041,7 +1076,8 @@ static byte *parse_index_fields(byte *ptr, const byte *end_ptr, uint16_t n,
   dict_table_add_system_columns(table, table->heap);
 
   /* Identify DB_TRX_ID and DB_ROLL_PTR in the index. */
-  if (is_versioned || (n_uniq != n)) {
+  /* Lizard-4.0 revision: Ignore the posible gpp column. */
+  if (is_versioned || (n_uniq != n - n_sec_lfields)) {
     size_t i = 0;
     i = DATA_TRX_ID - 1 + n_uniq;
     ut_a(DATA_TRX_ID_LEN == ind->get_col(i)->len);
@@ -1255,12 +1291,20 @@ static byte *mlog_parse_index_v1(byte *ptr, const byte *end_ptr,
   const bool is_versioned = IS_VERSIONED(flag);
   const bool is_instant = IS_INSTANT(flag);
 
+  uint8_t sl_extra_flag, n_sec_lfields;
+  ptr = lizard::parse_index_lfields_extra_flag(flag, ptr, end_ptr,
+                                               sl_extra_flag, n_sec_lfields);
+  if (ptr == nullptr) {
+    return nullptr;
+  }
+
   /* Read n and n_uniq */
   uint16_t n = 0;
   uint16_t n_uniq = 0;
   uint16_t inst_cols = 0;
-  ptr = parse_index_column_counts(ptr, end_ptr, is_comp, is_versioned,
-                                  is_instant, n, n_uniq, inst_cols);
+  ptr =
+      parse_index_column_counts(ptr, end_ptr, is_comp, is_versioned, is_instant,
+                                n_sec_lfields, n, n_uniq, inst_cols);
   if (ptr == nullptr) {
     return ptr;
   }
@@ -1281,14 +1325,16 @@ static byte *mlog_parse_index_v1(byte *ptr, const byte *end_ptr,
                             RECOVERY_INDEX_TABLE_NAME, DICT_HDR_SPACE, 0, n);
   ind->table = table;
   ind->n_uniq = (unsigned int)n_uniq;
-  if (n_uniq != n) {
+  /* Lizard-4.0 revision: Ignore all secondary index lizard fields. */
+  if (n_uniq != n - n_sec_lfields) {
     ut_a(n_uniq + DATA_ROLL_PTR <= n);
     ind->type = DICT_CLUSTERED;
   }
 
   if (is_comp) {
     /* Read each index field info */
-    ptr = parse_index_fields(ptr, end_ptr, n, n_uniq, is_versioned, ind, table);
+    ptr = parse_index_fields(ptr, end_ptr, n, n_sec_lfields, n_uniq,
+                             is_versioned, ind, table);
     if (ptr == nullptr) {
       *index = ind;
       return ptr;

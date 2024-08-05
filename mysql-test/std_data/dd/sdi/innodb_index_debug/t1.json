@@ -346,7 +346,7 @@
                 "is_generated": false,
                 "ordinal_position": 1,
                 "comment": "",
-                "options": "flags=0;",
+                "options": "IFT=0;flags=0;",
                 "se_private_data": "gcn=F;id=A;root=B;space_id=C;table_id=D;trx_id=E",
                 "type": 1,
                 "algorithm": 2,

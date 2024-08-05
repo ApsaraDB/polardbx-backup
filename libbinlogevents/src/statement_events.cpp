@@ -85,7 +85,8 @@ Query_event::Query_event(
       default_collation_for_utf8mb4_number(0),
       sql_require_primary_key(0xff),
       default_table_encryption(0xff),
-      opt_flashback_area(0xff) {}
+      opt_flashback_area(0xff),
+      opt_index_format_gpp_enabled(0xff) {}
 
 /**
   Utility function for the Query_event constructor.
@@ -137,7 +138,8 @@ Query_event::Query_event(const char *buf, const Format_description_event *fde,
       default_collation_for_utf8mb4_number(0),
       sql_require_primary_key(0xff),
       default_table_encryption(0xff),
-      opt_flashback_area(0xff) {
+      opt_flashback_area(0xff),
+      opt_index_format_gpp_enabled(0xff) {
   BAPI_ENTER("Query_event::Query_event(const char*, ...)");
   READER_TRY_INITIALIZATION;
   READER_ASSERT_POSITION(fde->common_header_len);
@@ -333,6 +335,9 @@ Query_event::Query_event(const char *buf, const Format_description_event *fde,
         break;
       case Q_OPT_FLASHBACK_AREA:
         READER_TRY_SET(opt_flashback_area, read<uint8_t>);
+        break;
+      case Q_OPT_INDEX_FORMAT_GPP_ENABLED:
+        READER_TRY_SET(opt_index_format_gpp_enabled, read<uint8_t>);
         break;
       default:
         /* That's why you must write status vars in growing order of code */

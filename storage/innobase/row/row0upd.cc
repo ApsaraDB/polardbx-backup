@@ -35,6 +35,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "dict0dict.h"
 #include "ha_prototypes.h"
 
+#include "lizard0btr0cur.h"
 #include "my_byteorder.h"
 #include "my_dbug.h"
 
@@ -292,6 +293,8 @@ upd_node_t *upd_node_create(mem_heap_t *heap) /*!< in: mem heap where created */
   node->state = UPD_NODE_UPDATE_CLUSTERED;
   node->heap = mem_heap_create(128, UT_LOCATION_HERE);
   node->magic_n = UPD_NODE_MAGIC_N;
+
+  node->gpp_no = 0;
 
   return (node);
 }
@@ -783,7 +786,8 @@ upd_t *row_upd_build_sec_rec_difference_binary(
 
   n_diff = 0;
 
-  for (i = 0; i < dtuple_get_n_fields(entry); i++) {
+  for (i = 0; i < lizard::row_upd_dtuple_get_ordered_n_fields(entry, index);
+       i++) {
     data = rec_get_nth_field(index, rec, offsets, i, &len);
 
     dfield = dtuple_get_nth_field(entry, i);
@@ -1952,6 +1956,8 @@ void row_upd_store_row(upd_node_t *node, THD *thd, TABLE *mysql_table) {
   node->row = row_build(ROW_COPY_DATA, clust_index, rec, offsets, nullptr,
                         nullptr, nullptr, ext, node->heap);
 
+  lizard::upd_alloc_gpp_field_for_old_row(node);
+
   if (node->table->n_v_cols) {
     row_upd_store_v_row(node, node->is_delete ? nullptr : node->update, thd,
                         mysql_table);
@@ -1962,6 +1968,10 @@ void row_upd_store_row(upd_node_t *node, THD *thd, TABLE *mysql_table) {
     node->upd_ext = nullptr;
   } else {
     node->upd_row = dtuple_copy(node->row, node->heap);
+
+    /* Lizard-4.0: Alloc gpp field and link it with upd_row. */
+    lizard::upd_alloc_gpp_field_for_new_row(node);
+
     row_upd_replace(node->upd_row, &node->upd_ext, clust_index, node->update,
                     node->heap);
   }
@@ -2136,6 +2146,10 @@ code or DB_LOCK_WAIT */
         node->upd_row, node->upd_ext, index, heap, true, !non_mv_upd);
     for (dtuple_t *entry = mv_entry_builder.begin(node->upd_multi_val_pos);
          entry != nullptr; entry = mv_entry_builder.next()) {
+
+      /* Lizard-4.0: Assert entry of json multi-value index. */
+      lizard_row_sec_multi_value_assert_gpp_no(index, entry);
+
       err = row_ins_sec_index_entry(index, entry, thr, false);
 
       if (err != DB_SUCCESS) {
@@ -2387,6 +2401,9 @@ code or DB_LOCK_WAIT */
   /* Build a new index entry */
   entry = row_build_index_entry(node->upd_row, node->upd_ext, index, heap);
   ut_a(entry);
+
+  /* Lizard-4.0: verify gpp_no is valid. */
+  lizard_row_upd_sec_assert_gpp_no(node, index, entry, node->upd_row);
 
   /* Insert new index entry */
   err = row_ins_sec_index_entry(index, entry, thr, false);
@@ -2679,7 +2696,7 @@ static inline bool row_upd_clust_rec_by_insert_inherit(
 
   mtr_commit(mtr);
 
-  err = row_ins_clust_index_entry(index, entry, thr, false);
+  err = row_ins_clust_index_entry(index, entry, &node->gpp_no, thr, false);
   node->state = UPD_NODE_INSERT_CLUSTERED;
 
   mem_heap_free(heap);
@@ -2895,6 +2912,7 @@ static bool row_upd_check_autoinc_counter(const upd_node_t *node, mtr_t *mtr) {
 
   if (err == DB_SUCCESS) {
   success:
+    node->gpp_no = lizard::btr_cur_get_page_no(btr_cur);
     if (dict_index_is_online_ddl(index)) {
       dtuple_t *new_v_row = nullptr;
       dtuple_t *old_v_row = nullptr;
@@ -3196,6 +3214,12 @@ static dberr_t row_upd(upd_node_t *node, /*!< in: row update node */
   if (node->index == nullptr ||
       (!node->is_delete && (node->cmpl_info & UPD_NODE_NO_ORD_CHANGE))) {
     return DB_SUCCESS;
+  }
+
+  if (!node->is_delete) {
+    /* New rec will be inserted on sec indexes, so we need to write gpp no. */
+    lizard::row_upd_clust_write_gpp_no(node, node->table->first_index(),
+                                       nullptr, node->upd_row);
   }
 
   DBUG_EXECUTE_IF("row_upd_skip_sec", node->index = nullptr;);

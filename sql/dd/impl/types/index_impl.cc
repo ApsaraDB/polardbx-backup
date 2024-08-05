@@ -45,6 +45,7 @@
 #include "sql/dd/impl/transaction_impl.h"          // Open_dictionary_tables_ctx
 #include "sql/dd/impl/types/index_element_impl.h"  // Index_element_impl
 #include "sql/dd/impl/types/table_impl.h"          // Table_impl
+#include "sql/dd/lizard_policy_types.h"
 #include "sql/dd/properties.h"
 #include "sql/dd/string_type.h"  // dd::String_type
 #include "sql/dd/types/column.h"
@@ -64,7 +65,7 @@ class Table;
 
 static const std::set<String_type> default_valid_option_keys = {
     "block_size", "flags", "parser_name",
-    "gipk" /* generated implicit primary key */};
+    "gipk" /* generated implicit primary key */, lizard::OPTION_IFT};
 
 ///////////////////////////////////////////////////////////////////////////
 // Index_impl implementation.

@@ -53,6 +53,7 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "ha_innodb.h"
 #include "ha_prototypes.h"
 #include "handler.h"
+#include "lizard0btr0cur.h"
 #include "lob0lob.h"
 #include "lob0undo.h"
 #include "lock0lock.h"
@@ -80,6 +81,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "lizard0cleanout.h"
 #include "lizard0undo.h"
 #include "lizard0gp.h"
+#include "lizard0row.h"
+#include "lizard0data0data.h"
 
 /** Maximum number of rows to prefetch; MySQL interface has another parameter */
 constexpr uint32_t SEL_MAX_N_PREFETCH = 16;
@@ -3131,6 +3134,14 @@ non-clustered index. Does the necessary locking.
 
   clust_index = sec_index->table->first_index();
 
+  if (lizard::row_sel_optimistic_guess_clust(
+          clust_index, sec_index, prebuilt->clust_ref, rec,
+          prebuilt->clust_pcur, *offsets, BTR_SEARCH_LEAF, mtr)) {
+    clust_rec = prebuilt->clust_pcur->get_rec();
+    prebuilt->clust_pcur->m_trx_if_known = trx;
+    goto clust_rec_found;
+  }
+
   prebuilt->clust_pcur->open_no_init(clust_index, prebuilt->clust_ref,
                                      PAGE_CUR_LE, BTR_SEARCH_LEAF, 0, mtr,
                                      UT_LOCATION_HERE);
@@ -3247,6 +3258,7 @@ non-clustered index. Does the necessary locking.
     goto func_exit;
   }
 
+clust_rec_found:
   *offsets = rec_get_offsets(clust_rec, clust_index, *offsets, ULINT_UNDEFINED,
                              UT_LOCATION_HERE, offset_heap);
 

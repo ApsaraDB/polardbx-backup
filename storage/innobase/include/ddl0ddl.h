@@ -35,6 +35,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "os0file.h"
 #include "ut0class_life_cycle.h"
 
+#include "lizard0dict0mem.h"
+
 // Forward declaration
 class Flush_observer;
 class Alter_stage;
@@ -242,13 +244,14 @@ UNIV_PFS_IO defined, register the file descriptor with Performance Schema.
 /** Create the index and load in to the dictionary.
 @param[in,out] trx              Trx (sets error_state)
 @param[in,out] table            The index is on this table
-@param[in] index_def            The index definition
+@param[in,out] index_def        The index definition
 @param[in] add_v                New virtual columns added along with add
                                 index call
 @return index, or nullptr on error */
 [[nodiscard]] dict_index_t *create_index(
-    trx_t *trx, dict_table_t *table, const Index_defn *index_def,
-    const dict_add_v_col_t *add_v) noexcept;
+    trx_t *trx, dict_table_t *tableconst, Index_defn *index_def,
+    const dict_add_v_col_t *add_v,
+    lizard::Ha_ddl_policy *ddl_policy) noexcept;
 
 /** Drop a table. The caller must have ensured that the background stats
 thread is not processing the table. This can be done by calling

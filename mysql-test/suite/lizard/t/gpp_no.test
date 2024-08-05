@@ -1,0 +1,16 @@
+--echo ###########################################
+--echo Test various types of gpp_no in gpp reads
+--echo ###########################################
+
+--source include/have_debug.inc
+
+let $number_of_formats= 4;
+let $i= 1;
+
+while ($i <= $number_of_formats)
+{
+  --let $ROW_FORMAT = `SELECT CASE $i WHEN 1 THEN 'DYNAMIC' WHEN 2 THEN 'COMPRESSED' WHEN 3 THEN 'REDUNDANT' WHEN 4 THEN 'COMPACT' END`
+  --echo --------------------start $ROW_FORMAT-----------------------------------------
+  --source suite/lizard/include/gpp_no.inc
+  inc $i;
+}

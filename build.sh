@@ -97,7 +97,7 @@ if [ x"$build_type" = x"RelWithDebInfo" ]; then
   CFLAGS="$COMMON_FLAGS"
   CXXFLAGS="$COMMON_FLAGS"
 elif [ x"$build_type" = x"Debug" ]; then
-  COMMON_FLAGS="-O0 -g3 -gdwarf-2 -fexceptions -fno-omit-frame-pointer -fno-strict-aliasing -fprofile-arcs -ftest-coverage"
+  COMMON_FLAGS="-O0 -g3 -fexceptions -fno-omit-frame-pointer -fstack-protector-strong"
   CFLAGS="$COMMON_FLAGS"
   CXXFLAGS="$COMMON_FLAGS"
 fi
@@ -121,5 +121,6 @@ cmake .                                    \
     -DWITH_BOOST="./extra/boost/boost_1_77_0.tar.bz2" \
     -DMYSQL_SERVER_SUFFIX="$server_suffix"
 
-make -j `cat /proc/cpuinfo | grep processor| wc -l`
+make -j $(nproc) install
+
 # end of file

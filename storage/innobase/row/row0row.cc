@@ -57,6 +57,8 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "trx0undo.h"
 #include "ut0mem.h"
 
+#include "lizard0data0data.h"
+
 dtuple_t *row_build_index_entry_low(const dtuple_t *row, const row_ext_t *ext,
                                     const dict_index_t *index, mem_heap_t *heap,
                                     ulint flag) {
@@ -83,6 +85,7 @@ dtuple_t *row_build_index_entry_low(const dtuple_t *row, const row_ext_t *ext,
   }
 
   if (dict_index_is_ibuf(index)) {
+    ut_ad(index->n_s_gfields == 0);
     dtuple_set_n_fields_cmp(entry, entry_len);
     /* There may only be externally stored columns
     in a clustered index B-tree of a user table. */
@@ -123,7 +126,11 @@ dtuple_t *row_build_index_entry_low(const dtuple_t *row, const row_ext_t *ext,
       ut_ad(dfield_is_null(dfield2) || dfield2->len == UNIV_NO_INDEX_VALUE ||
             dfield2->data);
     } else {
-      dfield2 = dtuple_get_nth_field(row, col_no);
+      if (col_no == DATA_GPP_NO) {
+        dfield2 = lizard::dtuple_get_v_gfield(row);
+      } else {
+        dfield2 = dtuple_get_nth_field(row, col_no);
+      }
       ut_ad(dfield_get_type(dfield2)->mtype == DATA_MISSING ||
             (!(dfield_get_type(dfield2)->prtype & DATA_VIRTUAL)));
     }
@@ -313,6 +320,9 @@ dtuple_t *row_build_index_entry_low(const dtuple_t *row, const row_ext_t *ext,
       dfield_set_len(dfield, len);
     }
   }
+
+  /** Lizard-4.0 Copy GPP virtual column*/
+  lizard::dtuple_copy_v_gfield(entry, row);
 
   return (entry);
 }
@@ -869,6 +879,7 @@ rec_t *row_get_clust_rec(
     const rec_t *rec,           /*!< in: record in a secondary index */
     const dict_index_t *index,  /*!< in: secondary index */
     dict_index_t **clust_index, /*!< out: clustered index */
+    const ulint *offsets,       /*!< in: rec_get_offsets(rec, index) */
     mtr_t *mtr)                 /*!< in: mtr */
 {
   mem_heap_t *heap;
@@ -878,6 +889,7 @@ rec_t *row_get_clust_rec(
   rec_t *clust_rec;
 
   ut_ad(!index->is_clustered());
+  ut_ad(rec_offs_validate(rec, index, offsets));
 
   table = index->table;
 
@@ -885,7 +897,10 @@ rec_t *row_get_clust_rec(
 
   ref = row_build_row_ref(ROW_COPY_POINTERS, index, rec, heap);
 
-  auto found = row_search_on_row_ref(&pcur, mode, table, ref, mtr);
+  auto found =
+      (lizard::row_lock_optimistic_guess_clust(
+           table->first_index(), index, ref, rec, &pcur, offsets, mode, mtr) ||
+       row_search_on_row_ref(&pcur, mode, table, ref, mtr));
 
   clust_rec = found ? pcur.get_rec() : nullptr;
 
@@ -939,7 +954,6 @@ enum row_search_result row_search_index_entry(
                            be closed by the caller */
     mtr_t *mtr)            /*!< in: mtr */
 {
-  ulint n_fields;
   ulint low_match;
   rec_t *rec;
 
@@ -978,11 +992,10 @@ enum row_search_result row_search_index_entry(
 
   rec = pcur->get_rec();
 
-  n_fields = dtuple_get_n_fields(entry);
-
   if (page_rec_is_infimum(rec)) {
     return (ROW_NOT_FOUND);
-  } else if (low_match != n_fields) {
+  } else if (low_match !=
+             lizard::row_search_dtuple_get_ordered_n_fields(entry, index)) {
     return (ROW_NOT_FOUND);
   }
 
