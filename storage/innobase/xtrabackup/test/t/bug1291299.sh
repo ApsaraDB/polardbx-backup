@@ -3,6 +3,7 @@
 ########################################################################
 
 . inc/common.sh
+skip_test "SUPPORT REMOTE DIR"
 require_server_version_higher_than 5.6.0
 
 remote_dir=$TEST_VAR_ROOT/var1/remote_dir
@@ -11,6 +12,7 @@ mkdir -p $remote_dir
 start_server --innodb_directories=$remote_dir
 
 xtrabackup --backup --lock-ddl=false --target-dir=$topdir/backup \
+           --polarx-safe-scan-fs=false \
            --debug-sync="data_copy_thread_func" &
 
 job_pid=$!

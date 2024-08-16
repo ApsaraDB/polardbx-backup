@@ -490,6 +490,9 @@ uint opt_lock_ddl_timeout = 0;
 uint opt_backup_lock_timeout = 0;
 uint opt_backup_lock_retry_count = 0;
 
+bool opt_polarx_safe_scan_fs = true;
+static bool polarx_locked_for_safe_scan_fs = false;
+
 const char *opt_history = NULL;
 bool opt_decrypt = false;
 uint opt_read_buffer_size = 0;
@@ -720,6 +723,7 @@ enum options_xtrabackup {
   OPT_LOCK_DDL,
   OPT_LOCK_DDL_TIMEOUT,
   OPT_LOCK_DDL_PER_TABLE,
+  OPT_POLARX_SAFE_SCAN_FS,
   OPT_BACKUP_LOCK_TIMEOUT,
   OPT_BACKUP_LOCK_RETRY,
   OPT_DUMP_INNODB_BUFFER,
@@ -1074,6 +1078,13 @@ struct my_option xb_client_options[] = {
      "completed.",
      (uchar *)&opt_lock_ddl_per_table, (uchar *)&opt_lock_ddl_per_table, 0,
      GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
+
+    {"polarx-safe-scan-fs", OPT_POLARX_SAFE_SCAN_FS,
+     "Try to LOCK TABLES/LOCK INSTANCE FOR BACKUP to ensure the security of "
+     "scanning the file system. And so that unnecessary and unsafe file "
+     "operation replay attempts are no longer needed.",
+     (uchar *)&opt_polarx_safe_scan_fs, (uchar *)&opt_polarx_safe_scan_fs, 0,
+     GET_BOOL, NO_ARG, 1, 0, 0, 0, 0, 0},
 
     {"backup-lock-timeout", OPT_BACKUP_LOCK_TIMEOUT,
      "Timeout in seconds for attempts to acquire metadata locks.",
@@ -2909,7 +2920,10 @@ static void xtrabackup_print_metadata(char *buf, size_t buf_len) {
            "redo_memory = %ld\n"
            "redo_frames = %ld\n",
            metadata_type_str, metadata_from_lsn, metadata_to_lsn,
-           metadata_last_lsn, opt_lock_ddl ? backup_redo_log_flushed_lsn : 0,
+           metadata_last_lsn,
+           (opt_lock_ddl || polarx_locked_for_safe_scan_fs)
+               ? backup_redo_log_flushed_lsn
+               : 0,
            redo_memory, redo_frames);
 }
 
@@ -4521,6 +4535,11 @@ void xtrabackup_backup_func(void) {
   if (err != DB_SUCCESS) {
     xb::error() << "xb_load_tablespaces() failed with error code " << err;
     exit(EXIT_FAILURE);
+  }
+
+  /** Release the backup lock in advance to prevent any impact on the business. */
+  if (polarx_locked_for_safe_scan_fs) {
+    unlock_all(mysql_connection);
   }
 
   debug_sync_point("xtrabackup_suspend_at_start");
@@ -7676,6 +7695,15 @@ bool xb_init() {
     if (opt_lock_ddl) {
       if (!lock_tables_for_backup(mysql_connection, opt_lock_ddl_timeout, 0))
         return (false);
+    } else if (opt_polarx_safe_scan_fs && !xtrabackup_incremental) {
+      /** Don't know how to handle incremental backup, so skip it. */
+      xb::info(ER_LIZARD) << "Try to acquire BACKUP LOCK for safe file system scan...";
+      if (!lock_tables_for_backup(mysql_connection, 3, 1200)) {
+        xb::error(ER_LIZARD) << "Cannot get BACKUP INSTANCE lock, so file "
+                                "system scan cannot be guaranteed to be safe.";
+        return (false);
+      }
+      polarx_locked_for_safe_scan_fs = true;
     }
 
     parse_show_engine_innodb_status(mysql_connection);

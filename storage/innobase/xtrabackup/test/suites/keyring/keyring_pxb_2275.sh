@@ -17,6 +17,7 @@ mkdir $topdir/backup
 
 # Test 1 - should fail since we don't have any entry on keyring file yet
 run_cmd_expect_failure $XB_BIN $XB_ARGS --innodb-log-file-size=200M --xtrabackup-plugin-dir=${plugin_dir} --lock-ddl=false --backup \
+--polarx-safe-scan-fs=false \
 --target-dir=$topdir/backup --debug-sync="xtrabackup_pause_after_redo_catchup" --core-file &
 
 job_pid=$!
@@ -72,6 +73,7 @@ innodb_wait_for_flush_all
 
 # Test 2 - Should pass as keyring file alwady have encryption information
 run_cmd $XB_BIN $XB_ARGS --innodb-log-file-size=200M --xtrabackup-plugin-dir=${plugin_dir} --lock-ddl=false --backup \
+--polarx-safe-scan-fs=false \
 --target-dir=$topdir/backup --debug-sync="xtrabackup_pause_after_redo_catchup" &
 
 job_pid=$!

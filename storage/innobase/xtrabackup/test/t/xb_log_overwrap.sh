@@ -15,6 +15,7 @@ mkdir $topdir/backup
 innodb_wait_for_flush_all
 run_cmd_expect_failure $XB_BIN $XB_ARGS --datadir=$mysql_datadir --backup \
     --lock-ddl=false --innodb_log_file_size=4M --target-dir=$topdir/backup \
+    --polarx-safe-scan-fs=false \
     --debug-sync="xtrabackup_copy_logfile_pause" &
 
 job_pid=$!

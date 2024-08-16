@@ -7,6 +7,7 @@ if ! $XB_BIN --help 2>&1 | grep -q debug-sync; then
 fi
 
 XB_EXTRA_MY_CNF_OPTS="
+polarx-safe-scan-fs=false
 debug-sync=xtrabackup_load_tablespaces_pause
 "
 
