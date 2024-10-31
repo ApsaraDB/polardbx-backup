@@ -1169,7 +1169,7 @@ static MYSQL_THDVAR_ULONG(ddl_threads, PLUGIN_VAR_RQCMDARG,
 static MYSQL_THDVAR_BOOL(transaction_group, PLUGIN_VAR_OPCMDARG,
                          "Enable transaction group mode, data changes are "
                          "visible to all transactions in the same group",
-                         nullptr, nullptr, FALSE);
+                         nullptr, nullptr, false);
 
 static SHOW_VAR innodb_status_variables[] = {
     {"buffer_pool_dump_status",
@@ -3163,7 +3163,7 @@ void innobase_register_trx_only_trans(handlerton *hton, THD *thd, trx_t *trx) {
 
   if (!trx_is_registered_for_2pc(trx) &&
       thd_test_options(thd, OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN)) {
-    trans_register_ha(thd, TRUE, innodb_hton, &trx_id);
+    trans_register_ha(thd, true, innodb_hton, &trx_id);
   }
 
   trx_register_for_2pc(trx);
@@ -23524,7 +23524,7 @@ static MYSQL_SYSVAR_BOOL(rds_flashback_enabled,
                          lizard::srv_force_normal_query_if_fbq,
                          PLUGIN_VAR_OPCMDARG,
                          "Whether to enable use as of query (true by default)",
-                         NULL, NULL, TRUE);
+                         NULL, NULL, true);
 
 static MYSQL_SYSVAR_ULONG(
     scn_history_keep_days, lizard::srv_scn_history_keep_days,
@@ -23611,7 +23611,7 @@ static MYSQL_SYSVAR_BOOL(cleanout_write_redo,
                          lizard::opt_cleanout_write_redo,
                          PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_READONLY,
                          "whether to write redo log when cleanout",
-                         NULL, NULL, FALSE);
+                         NULL, NULL, false);
 
 static MYSQL_SYSVAR_ULONG(txn_cached_list_keep_size,
                           lizard::srv_txn_cached_list_keep_size,

@@ -2,3 +2,12 @@ t-polardbx-engine-xtrabackup-80:
   pkgpara:
     ALLOW_SAME: 1
     DOCKER: 1
+    DO_TAG: 1
+    NO_BUILDNUMBER: 1
+
+t-polardbx-engine-xtrabackup:
+  pkgpara:
+    ALLOW_SAME: 1
+    DOCKER: 1
+    DO_TAG: 1
+    NO_BUILDNUMBER: 1

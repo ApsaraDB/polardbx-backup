@@ -288,3 +288,6 @@ extra/libkmip/kmippp/demo_*
 extra/libkmip/libkmip/src/demo_*
 extra/libkmip/libkmip/src/libkmip.a
 extra/libkmip/kmippp/libkmippp.a
+extra/protobuf/protobuf-3.19.4/cmake/libprotobuf-lite.a
+extra/protobuf/protobuf-3.19.4/cmake/libprotobuf.a
+extra/protobuf/protobuf-3.19.4/cmake/libprotoc.a
