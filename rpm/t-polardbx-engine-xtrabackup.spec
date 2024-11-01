@@ -29,6 +29,7 @@ Prefix:        /u01/polardbx_engine_xtrabackup80
 # do not strip binary files, just compress man doc
 %define __os_install_post /usr/lib/rpm/brp-compress
 %define _unpackaged_files_terminate_build 0
+%define link_dir /opt/polardbx_backup
 
 %description
 Percona XtraBackup is OpenSource online (non-blockable) backup solution for InnoDB and XtraDB engines
@@ -82,6 +83,9 @@ rm -rf $RPM_BUILD_ROOT
 %{prefix}/lib/plugin/keyring_rds.so
 %{prefix}/bin/mysqlbinlogtailor
 
+%post
+rm -rf %{link_dir}
+ln -nsf %{prefix} %{link_dir}
 
 %changelog
 * Fri Aug 31 2018 Evgeniy Patlan <evgeniy.patlan@percona.com>
